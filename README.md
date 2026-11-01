@@ -87,7 +87,7 @@ lockfile holds no download of the siblings. A run that needs one fails and
 names the directory to install:
 
 ```zsh
-cd ring-core && lein install       # then ring-devel can resolve ring-core
+cd core && lein install       # then app, which depends on core, can resolve it
 ```
 
 `lein sub install` at the root does the same for every subproject, in the
@@ -129,10 +129,10 @@ lein-purifier update org.clojure/data.json  # only this package
 
 which resolves them anew against the repositories and relocks.
 
-Maven Central answers many requests from one address with HTTP 429, so the
-lock run downloads its files through Google's mirror of it, unless the
-project configures `:mirrors` itself. Each file from Maven Central is
-locked with its URL there and with the mirror as the fallback.
+Maven Central limits the requests that come from one address, so the lock
+run downloads its files through Google's mirror of it, unless the project
+configures `:mirrors` itself. Each file from Maven Central is locked with
+its URL there and with the mirror as the fallback.
 `LEIN_PURIFIER_CENTRAL_MIRROR` names another mirror, and an empty value
 turns it off.
 
@@ -228,40 +228,73 @@ holds what the platform of the lock run resolved.
 
 ## Examples
 
-These are examples. The projects that CI locks and builds do not limit
-what lein-purifier supports, and the list of supported sources above
-says what it does.
+### Ring
 
-CI locks and builds **Ring**
-([ring-clojure/ring](https://github.com/ring-clojure/ring), commit
-`6238fe0`, version 1.15.6), which has five subprojects that lein-sub
-names. `lein-purifier lock` locks it in 42 seconds, to 209 entries. CI
-checks the following on both architectures, with Ring's lockfile kept
-outside its source in `tests/real/ring`:
+[Ring](https://github.com/ring-clojure/ring) is the web application
+library of the Clojure ecosystem. It is a lein-sub project with a
+subproject for each part of the library, and you do not change it, so you
+keep its lockfile in your own flake repository, next to the flake that
+builds it.
 
-- relocking reproduces the lockfile byte for byte;
-- all five subprojects build in the sandbox, and the release holds the jar
-  and POM of each;
-- the test suites of the subprojects pass in the sandbox, among them the
-  191 tests of ring-core and the 7 tests of ring-jetty-adapter.
+Check out Ring beside your flake, and lock it into your repository:
 
-Trying the everyday loop on a checkout of Ring found one thing: `lein test`
-at the root runs the tests of each subproject, and `ring-devel` needs
-`ring-core`, which is a project of the build and so not a download. The
-run failed with a plain transfer error, and now says to run `lein install`
-in `ring-core`. Ring lists `ring-jetty-adapter` before
-`ring-jakarta-servlet`, which it needs, so `lein sub install` alone does
-not install them in a usable order here either; the fixture `multi-sub`
-tests the same case.
+```zsh
+git clone https://github.com/ring-clojure/ring
+cd ring
+nix run github:nix-purifiers/lein-purifier -- lock --lockfile ../ring.lock.json
+cd ..
+git add ring.lock.json
+```
 
-One known failure: the lock run of **Compojure** (commit `8a4758d`) fails
-in Leiningen's `deps` task, and the cause is not known yet.
+Then build it with a flake that takes Ring as an input that is not a
+flake:
 
-The test fixtures cover each supported source: `hello` (Maven Central,
-Clojars, a plugin, a test profile, an uberjar), `sources` (a version range,
-a SNAPSHOT, a mirror, a repository inside the project), `update` (a
-lockfile that pins an older version than its range allows), `multi-sub`
-(lein-sub) and `monolith` (lein-monolith).
+```nix
+{
+  inputs.lein-purifier.url = "github:nix-purifiers/lein-purifier";
+  inputs.nixpkgs.follows = "lein-purifier/nixpkgs";
+  inputs.ring = {
+    url = "github:ring-clojure/ring";
+    flake = false;
+  };
+
+  outputs = { nixpkgs, lein-purifier, ring, ... }:
+    let
+      system = "x86_64-linux";
+      pkgs = nixpkgs.legacyPackages.${system};
+      project = lein-purifier.lib.lein-purifier.buildLeinProject {
+        inherit pkgs;
+        src = ring;
+        lockFile = ./ring.lock.json;
+      };
+    in
+    {
+      packages.${system} = project.packages;
+      checks.${system}.tests = project.tests;
+    };
+}
+```
+
+`nix build .#ring-core` builds one subproject, and `nix flake check` runs
+the tests of all of them in the sandbox. Each subproject is a package with
+its jar and POM in `share/java`, and `project.release` holds them all in
+Maven repository layout.
+
+To work on Ring itself, run Leiningen from a shell that has lein-purifier,
+in the checkout with its lockfile in place:
+
+```zsh
+cd ring
+export LEIN_PURIFIER_LOCKFILE="$(realpath ../ring.lock.json)"
+nix shell github:nix-purifiers/lein-purifier
+lein-purifier prefetch
+lein test
+```
+
+A subproject finds a sibling it depends on only after `lein install` in
+the sibling's directory, as the Everyday loop section describes. Ring
+lists `ring-jetty-adapter` before `ring-jakarta-servlet`, which it needs,
+so install `ring-jakarta-servlet` first.
 
 ## Credits
 
