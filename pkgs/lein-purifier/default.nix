@@ -18,6 +18,16 @@
   gawk,
 }:
 let
+  # The source of this flake, with its flake.lock. The command evaluates it
+  # to build with the same library and nixpkgs as a Nix build does, so it
+  # is copied into the store here and the command depends on the copy. A
+  # path interpolated without this copy names a store path that a machine
+  # evaluating the flake from a git checkout may never create.
+  source = builtins.path {
+    path = ../..;
+    name = "lein-purifier-source";
+  };
+
   script = writeShellApplication {
     name = "lein-purifier";
     runtimeInputs = [
@@ -31,10 +41,7 @@ let
       gawk
     ];
     runtimeEnv = {
-      # The source of this flake, with its flake.lock, which the command
-      # evaluates to build with the same library and nixpkgs as a Nix
-      # build does.
-      LEIN_PURIFIER_FLAKE = ../..;
+      LEIN_PURIFIER_FLAKE = "${source}";
       LEIN_PURIFIER_SYSTEM = stdenv.hostPlatform.system;
       LEIN_PURIFIER_FORMAT = toString (import ../../nix/lib/lock-version.nix);
       LEIN_PURIFIER_LEIN_VERSION = leiningen.version;
