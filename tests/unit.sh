@@ -153,6 +153,8 @@ EOF
 seedMetadata "$case/previous.json" "$m2" "$case/transfers" s/s
 [ "$(cat "$m2/org/example/r/maven-metadata-central.xml")" = '<metadata>r</metadata>' ] || fail "seeded: the metadata of r was not seeded"
 [ ! -e "$m2/s/s/1.0-SNAPSHOT/maven-metadata-clojars.xml" ] || fail "seeded: the metadata of s, named for update, was seeded"
+grep -q '^maven-metadata-central.xml.lastUpdated=[0-9]\{13\}$' "$m2/org/example/r/resolver-status.properties" ||
+  fail "seeded: no lastUpdated record for r: $(cat "$m2/org/example/r/resolver-status.properties" 2>&1)"
 [ "$(cut -f1,2 "$case/transfers")" = "seeded	org/example/r/maven-metadata-central.xml" ] || fail "seeded: $(cat "$case/transfers")"
 download https://repo1.maven.org/maven2/ org/example/r/2.9.0/r-2.9.0.pom p
 run || fail "seeded: lockEntries failed"

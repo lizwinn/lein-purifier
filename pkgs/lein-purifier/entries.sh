@@ -175,6 +175,12 @@ seedMetadata() {
     [ $skip = 0 ] || continue
     mkdir -p "$m2/$(dirname "$path")"
     jq -j --arg path "$path" '.artifacts[] | select(.path == $path) | .contents' "$lockFile" >"$m2/$path"
+    # Maven Resolver trusts a metadata file only when the
+    # resolver-status.properties beside it records when it was fetched; the
+    # update policy `never` then keeps it. Without that record the file
+    # counts as never fetched, and the lock run fetches it again.
+    printf '%s.lastUpdated=%s\n' "$(basename "$path")" "$(date +%s%3N)" \
+      >>"$m2/$(dirname "$path")/resolver-status.properties"
     printf 'seeded\t%s\t%s\t%s\n' "$path" "$m2/$path" "" >>"$transfers"
   done < <(jq -r '.artifacts[] | select(has("contents")) | .path' "$lockFile")
 }
