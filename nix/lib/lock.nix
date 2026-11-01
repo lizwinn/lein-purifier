@@ -7,7 +7,17 @@
 # nothing but the Nix installation it runs on.
 { lockFile }:
 let
-  lock = builtins.fromJSON (builtins.readFile lockFile);
+  raw = builtins.readFile lockFile;
+
+  # A merge conflict leaves markers in the file, which builtins.fromJSON
+  # would report as a bare syntax error.
+  conflicted = builtins.length (builtins.split "\n<<<<<<< " ("\n" + raw)) > 1;
+
+  lock =
+    if conflicted then
+      throw "lein-purifier: ${toString lockFile} has merge conflict markers in it; run `lein-purifier lock --force` to write it anew."
+    else
+      builtins.fromJSON raw;
 
   supportedVersion = import ./lock-version.nix;
 
@@ -32,8 +42,14 @@ let
     builtins.substring 0 200 nonEmpty;
 in
 assert
+  builtins.isAttrs lock && lock ? version
+  || throw "lein-purifier: ${toString lockFile} is not a lein-purifier lockfile; run `lein-purifier lock --force` to write one.";
+assert
   lock.version == supportedVersion
   || throw "lein-purifier: ${toString lockFile} has lock format version ${toString lock.version}, and this library reads version ${toString supportedVersion}. Run `lein-purifier lock --force` with the lein-purifier revision that provides this library.";
+assert
+  (lock.integrity or null) == import ./integrity.nix lock
+  || throw "lein-purifier: ${toString lockFile} was changed after `lein-purifier lock` wrote it; run `lein-purifier lock --force` to write it anew.";
 lock
 // {
   inherit storeName;

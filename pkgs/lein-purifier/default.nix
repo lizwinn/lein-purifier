@@ -33,6 +33,7 @@ writeShellApplication {
     LEIN_PURIFIER_LIB = ../../nix/lib;
     LEIN_PURIFIER_FORMAT = toString (import ../../nix/lib/lock-version.nix);
     LEIN_PURIFIER_INIT = ./init.clj;
+    LEIN_PURIFIER_ENTRIES = ./entries.sh;
     LEIN_PURIFIER_NIXPKGS = path;
   };
   text = builtins.readFile ./lein-purifier.sh;

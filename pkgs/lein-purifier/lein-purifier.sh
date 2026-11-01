@@ -13,6 +13,10 @@ lockName=lein-purifier.lock.json
 # LEIN_PURIFIER_TRACE=1 prints each command of this script as it runs.
 if [ -n "${LEIN_PURIFIER_TRACE:-}" ]; then set -x; fi
 
+# lockEntries and lockIntegrity, from pkgs/lein-purifier/entries.sh.
+# shellcheck disable=SC1090,SC1091
+source "$LEIN_PURIFIER_ENTRIES"
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -78,12 +82,28 @@ leinVersion() {
   (cd / && lein version 2>/dev/null) | sed -n 's/^Leiningen \([^ ]*\) on Java \([^ ]*\) .*/\1 \2/p'
 }
 
+# Stops with a message when the lockfile is not one `lein-purifier lock`
+# wrote: when it is not JSON, as after a merge conflict, or when its
+# content no longer matches its integrity, as after an edit by hand.
+checkLockFile() {
+  local lockFile=$1
+  if ! jq -e 'type == "object"' "$lockFile" >/dev/null 2>&1; then
+    die "$lockFile is not valid JSON, as when a merge conflict leaves its markers in it; run lein-purifier lock --force to write it anew"
+  fi
+  if [ "$(jq -r .version "$lockFile")" != "$LEIN_PURIFIER_FORMAT" ]; then
+    die "$lockFile has lock format version $(jq -r .version "$lockFile"), and this lein-purifier reads version $LEIN_PURIFIER_FORMAT; run lein-purifier lock --force"
+  fi
+  if [ "$(jq -r '.integrity // ""' "$lockFile")" != "$(lockIntegrity "$lockFile")" ]; then
+    die "$lockFile was changed after lein-purifier lock wrote it; run lein-purifier lock --force to write it anew"
+  fi
+}
+
 # Whether the lockfile was made from this project definition, by this
-# lock format and with this Leiningen.
+# lock format and with this Leiningen, and is unchanged since.
 lockIsCurrent() {
   local root=$1 lockFile=$2 versions dirs
   [ -f "$lockFile" ] || return 1
-  [ "$(jq -r .version "$lockFile")" = "$LEIN_PURIFIER_FORMAT" ] || return 1
+  (checkLockFile "$lockFile") 2>/dev/null || return 1
   versions=$(leinVersion)
   mapfile -t dirs < <(jq -r '.projects[].dir' "$lockFile")
   [ "$(jq -r .definitionHash "$lockFile")" = "$(definitionHash "$root" "${dirs[@]}")" ] &&
@@ -125,6 +145,13 @@ cmdLock() {
   # sandboxed build.
   tar -C "$root" --exclude=target --exclude=.git --exclude=checkouts -cf - . | tar -C "$work/project" -xf -
   cp "$LEIN_PURIFIER_INIT" "$work/home/.lein/init.clj"
+  # The user profile of the lock run downloads Maven Central through its
+  # mirror (see entries.sh). The mirror keeps the name `central`, so the
+  # metadata files keep the names a build without the mirror reads.
+  if [ -n "$centralMirror" ]; then
+    jq -rn --arg url "$centralMirror" '"{:user {:mirrors {\"central\" {:name \"central\" :url \"\($url)\"}}}}"' \
+      >"$work/home/.lein/profiles.clj"
+  fi
 
   # The lock run sees what a sandboxed build sees: an empty local
   # repository, no user profile, and none of the files in the home
@@ -260,75 +287,19 @@ cmdLock() {
          outputs: $outputs, dependsOn: $dependsOn }' >>"$projects"
   done
 
-  # Every logged download becomes an entry: a file with the URL it came
-  # from, or, for repository metadata, whose content changes over time at
-  # its URL, the content the lock run read. A Maven repository serves a
-  # released file at one URL, so the list of fallback URLs is empty. Files from a `file:`
-  # repository inside the project are not downloads; the build takes them
-  # from the project source.
-  local artifacts="$work/artifacts.jsonl" repository resource file cwd rel path
-  declare -A recorded projectRepositories
-  : >"$artifacts"
-  while IFS=$'\t' read -r repository resource file cwd; do
-    case $resource in *.sha1 | *.md5 | *.sha256 | *.sha512 | *.asc) continue ;; esac
-    rel=${file#"$m2"/}
-    if [[ $repository == file:* ]]; then
-      path=${repository#file:}
-      path=${path#//}
-      if [[ $path != /* ]]; then path="$cwd/$path"; fi
-      path=$(realpath -m "$path")
-      case $path in
-      "$project"/*) projectRepositories[${path#"$project"/}]=1 ;;
-      "$project") die "the project root is itself a file: repository" ;;
-      *) die "$rel came from $repository, a file: repository outside the project; move it into the project" ;;
-      esac
-      recorded[$rel]=1
-      continue
-    fi
-    [ -z "${recorded[$rel]:-}" ] || continue
-    recorded[$rel]=1
-    case $(basename "$rel") in
-    maven-metadata*.xml)
-      jq -cn --arg path "$rel" --rawfile contents "$m2/$rel" '{ path: $path, contents: $contents }' >>"$artifacts"
-      ;;
-    *)
-      jq -cn --arg path "$rel" --arg url "${repository%/}/$resource" \
-        --arg hash "$(nix-hash --type sha256 --flat --sri "$m2/$rel")" \
-        '{ path: $path, url: $url, mirrors: [], hash: $hash }' >>"$artifacts"
-      ;;
-    esac
-  done <"$transfers"
-
-  # Every other file in the local repository must be one Maven Resolver
-  # made itself: its records, the -SNAPSHOT copies of timestamped SNAPSHOT
-  # files, or a file of a project of this build that the lock run
-  # installed, which includes the maven-metadata-local.xml beside its
-  # versions.
-  local installed=() unexplained=()
+  # The projects of this build that the lock run installed are not
+  # downloads. That covers the maven-metadata-local.xml beside their
+  # versions too.
+  local installed=() artifacts="$work/artifacts.jsonl" repositories="$work/repositories"
   if [ $multi = true ]; then
     for dir in "${ordered[@]}"; do
       installed+=("$(groupPath "${group[$dir]}")/${name[$dir]}/")
     done
   fi
-  local prefix explained
-  while IFS= read -r rel; do
-    [ -z "${recorded[$rel]:-}" ] || continue
-    case $(basename "$rel") in
-    _remote.repositories | *.lastUpdated | resolver-status.properties | *.sha1 | *.md5 | *.sha256 | *.sha512)
-      continue
-      ;;
-    esac
-    if [[ $(dirname "$rel") == *-SNAPSHOT && $(basename "$rel") == *-SNAPSHOT* ]]; then continue; fi
-    explained=0
-    for prefix in "${installed[@]}"; do
-      if [[ $rel == "$prefix"* ]]; then explained=1; fi
-    done
-    [ $explained = 1 ] || unexplained+=("$rel")
-  done < <(cd "$m2" && find . -type f -printf '%P\n' | LC_ALL=C sort)
-  if [ ${#unexplained[@]} -gt 0 ]; then
-    printf '  %s\n' "${unexplained[@]}" >&2
-    die "the files above are in the local repository, but no download of them was logged"
-  fi
+  : >"$artifacts"
+  : >"$repositories"
+  lockEntries "$m2" "$transfers" "$project" "$artifacts" "$repositories" "${installed[@]}" ||
+    die "the lock run left files that cannot be locked (above)"
 
   jq -n \
     --argjson version "$LEIN_PURIFIER_FORMAT" \
@@ -336,7 +307,7 @@ cmdLock() {
     --arg javaVersion "${versions#* }" \
     --arg definitionHash "$(definitionHash "$root" "${ordered[@]}")" \
     --argjson uberjar "$uberjar" \
-    --argjson projectRepositories "$(printf '%s\n' "${!projectRepositories[@]}" | LC_ALL=C sort | jq -R . | jq -s 'map(select(. != ""))')" \
+    --argjson projectRepositories "$(LC_ALL=C sort -u "$repositories" | jq -R . | jq -s .)" \
     --slurpfile projects "$projects" \
     --slurpfile artifacts "$artifacts" \
     '{
@@ -348,7 +319,9 @@ cmdLock() {
       projects: $projects,
       projectRepositories: $projectRepositories,
       artifacts: ($artifacts | sort_by(.path))
-    }' >"$lockFile.tmp"
+    }' >"$work/lock.json"
+  jq --arg integrity "$(lockIntegrity "$work/lock.json")" '. + { integrity: $integrity }' \
+    "$work/lock.json" >"$lockFile.tmp"
   mv "$lockFile.tmp" "$lockFile"
   echo "lein-purifier: wrote $lockFile ($(jq '.projects | length' "$lockFile") projects, $(jq '.artifacts | length' "$lockFile") entries)"
 }
@@ -395,8 +368,9 @@ cmdLein() {
   root=$(projectRoot)
   lockFile="$root/$lockName"
   [ -f "$lockFile" ] || die "$lockFile does not exist; run lein-purifier lock"
+  checkLockFile "$lockFile"
   if ! lockIsCurrent "$root" "$lockFile"; then
-    echo "lein-purifier: $lockFile is out of date; Leiningen resolves the usual way until lein-purifier lock renews it" >&2
+    echo "lein-purifier: project.clj or profiles.clj changed, or Leiningen did, after $lockFile was made; Leiningen resolves the usual way until lein-purifier lock renews it" >&2
     exec lein "$@"
   fi
   prepareRepository "$root" "$lockFile" "$root/target/lein-purifier"
@@ -406,7 +380,17 @@ cmdLein() {
   # effect.
   export LEIN_HOME="${LEIN_HOME:-$HOME/.lein}"
   export LEIN_JVM_OPTS="-Duser.home=$home ${LEIN_JVM_OPTS:-}"
-  exec lein -o "$@"
+
+  # A dependency the lock does not hold fails offline with "in offline
+  # mode". Leiningen still writes to the terminal, and a copy of its error
+  # output is searched for that afterwards.
+  local errors="$root/target/lein-purifier/errors" status=0
+  lein -o "$@" 2> >(tee "$errors" >&2) || status=$?
+  wait
+  if [ $status != 0 ] && grep -q 'in offline mode' "$errors"; then
+    echo "lein-purifier: Leiningen needs an artifact that $lockFile does not hold. A profile or a plugin that the lock run did not use may need it; run lein-purifier lock --force to lock again" >&2
+  fi
+  return $status
 }
 
 cmdDeploy() {
@@ -417,7 +401,9 @@ cmdDeploy() {
   root=$(projectRoot)
   lockFile="$root/$lockName"
   [ -f "$lockFile" ] || die "$lockFile does not exist; run lein-purifier lock"
-  lockIsCurrent "$root" "$lockFile" || die "$lockFile is out of date; run lein-purifier lock"
+  checkLockFile "$lockFile"
+  lockIsCurrent "$root" "$lockFile" ||
+    die "project.clj or profiles.clj changed, or Leiningen did, after $lockFile was made; run lein-purifier lock"
 
   local state="$root/target/lein-purifier" names
   if [ $# -gt 0 ]; then

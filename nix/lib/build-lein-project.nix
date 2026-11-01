@@ -175,6 +175,15 @@ let
       # it holds what this needs: the local repository is the only one, it
       # is read offline, and no user profile applies.
       preBuild = ''
+        leinOffline() {
+          if ! "$@" 2> >(tee "$TMPDIR/lein-errors" >&2); then
+            wait
+            if grep -q 'in offline mode' "$TMPDIR/lein-errors"; then
+              echo "lein-purifier: Leiningen needs an artifact that the lockfile does not hold; run lein-purifier lock --force" >&2
+            fi
+            return 1
+          fi
+        }
         export HOME="$TMPDIR/home"
         export LEIN_HOME="$HOME/.lein"
         mkdir -p "$HOME/.m2/repository" "$LEIN_HOME" "$TMPDIR/java-tmp"
@@ -194,14 +203,16 @@ let
         export JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$TMPDIR/java-tmp"
         cd ${lib.escapeShellArg project.dir}
       '';
+      # A dependency the lock does not hold fails offline with "in offline
+      # mode"; the build then says what to do about it.
       buildPhase = ''
         runHook preBuild
-        ${leinDo}
+        leinOffline ${leinDo}
         runHook postBuild
       '';
       checkPhase = ''
         runHook preCheck
-        lein -o test
+        leinOffline lein -o test
         runHook postCheck
       '';
       dontFixup = !launcher;

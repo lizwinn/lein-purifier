@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
 #
-# Tests `lein-purifier lock`: it relocks a copy of each fixture and
-# compares the result with the committed lockfile. Repository metadata
-# changes over time at its URL, so the content of metadata entries is left
-# out of the comparison, and their paths are compared. It needs the
+# Tests `lein-purifier lock`: it relocks a copy of each fixture, and the
+# result must be byte for byte the committed lockfile. It needs the
 # network, and it runs from any directory.
 set -euo pipefail
 
@@ -14,12 +12,11 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 cp -r "$root/tests/fixtures/." "$work"
 
-comparable='.artifacts |= map(if has("contents") then { path } else . end)'
 for fixture in "$work"/*/; do
   name=$(basename "$fixture")
   (cd "$fixture" && "$cli" lock --force)
-  if ! diff <(jq -S "$comparable" "$root/tests/fixtures/$name/lein-purifier.lock.json") \
-    <(jq -S "$comparable" "$fixture/lein-purifier.lock.json"); then
+  if ! cmp "$root/tests/fixtures/$name/lein-purifier.lock.json" "$fixture/lein-purifier.lock.json"; then
+    diff <(jq -S . "$root/tests/fixtures/$name/lein-purifier.lock.json") <(jq -S . "$fixture/lein-purifier.lock.json") || true
     echo "lock.sh: the lock of $name differs from the committed one (above)" >&2
     exit 1
   fi
