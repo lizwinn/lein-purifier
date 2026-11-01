@@ -61,43 +61,57 @@
     {
       "path": "org/clojure/clojure/1.12.0/clojure-1.12.0.jar",
       "url": "https://repo1.maven.org/maven2/org/clojure/clojure/1.12.0/clojure-1.12.0.jar",
-      "mirrors": [],
+      "mirrors": [
+        "https://maven-central.storage-download.googleapis.com/maven2/org/clojure/clojure/1.12.0/clojure-1.12.0.jar"
+      ],
       "hash": "sha256-xFMzAGRBoFnqn9sTQfxsH0C5IaENzNgmZTEeSKA4R2M="
     },
     {
       "path": "org/clojure/clojure/1.12.0/clojure-1.12.0.pom",
       "url": "https://repo1.maven.org/maven2/org/clojure/clojure/1.12.0/clojure-1.12.0.pom",
-      "mirrors": [],
+      "mirrors": [
+        "https://maven-central.storage-download.googleapis.com/maven2/org/clojure/clojure/1.12.0/clojure-1.12.0.pom"
+      ],
       "hash": "sha256-KfRiqonLl2RXWEGKXwjUwagrc1yW569JgX0WqpuQgVA="
     },
     {
       "path": "org/clojure/core.specs.alpha/0.4.74/core.specs.alpha-0.4.74.jar",
       "url": "https://repo1.maven.org/maven2/org/clojure/core.specs.alpha/0.4.74/core.specs.alpha-0.4.74.jar",
-      "mirrors": [],
+      "mirrors": [
+        "https://maven-central.storage-download.googleapis.com/maven2/org/clojure/core.specs.alpha/0.4.74/core.specs.alpha-0.4.74.jar"
+      ],
       "hash": "sha256-63OsCM9JuoQMiLpnvu8RM2ylVDM9lAiAjXiUbg/rnds="
     },
     {
       "path": "org/clojure/core.specs.alpha/0.4.74/core.specs.alpha-0.4.74.pom",
       "url": "https://repo1.maven.org/maven2/org/clojure/core.specs.alpha/0.4.74/core.specs.alpha-0.4.74.pom",
-      "mirrors": [],
+      "mirrors": [
+        "https://maven-central.storage-download.googleapis.com/maven2/org/clojure/core.specs.alpha/0.4.74/core.specs.alpha-0.4.74.pom"
+      ],
       "hash": "sha256-M0EOuKpz1S2Vez3G4KZfOZisBiPL2BPZDDPm5onEJCk="
     },
     {
       "path": "org/clojure/pom.contrib/1.2.0/pom.contrib-1.2.0.pom",
       "url": "https://repo1.maven.org/maven2/org/clojure/pom.contrib/1.2.0/pom.contrib-1.2.0.pom",
-      "mirrors": [],
+      "mirrors": [
+        "https://maven-central.storage-download.googleapis.com/maven2/org/clojure/pom.contrib/1.2.0/pom.contrib-1.2.0.pom"
+      ],
       "hash": "sha256-CRbXpBVYuVAKQnyIb6KYJ6zlJZIGvjrTPmTilvwaYRE="
     },
     {
       "path": "org/clojure/spec.alpha/0.5.238/spec.alpha-0.5.238.jar",
       "url": "https://repo1.maven.org/maven2/org/clojure/spec.alpha/0.5.238/spec.alpha-0.5.238.jar",
-      "mirrors": [],
+      "mirrors": [
+        "https://maven-central.storage-download.googleapis.com/maven2/org/clojure/spec.alpha/0.5.238/spec.alpha-0.5.238.jar"
+      ],
       "hash": "sha256-lM2ZtupjlkHzevSGCmQ7btOZ7lqL5dcXz/C2Y8jXUHc="
     },
     {
       "path": "org/clojure/spec.alpha/0.5.238/spec.alpha-0.5.238.pom",
       "url": "https://repo1.maven.org/maven2/org/clojure/spec.alpha/0.5.238/spec.alpha-0.5.238.pom",
-      "mirrors": [],
+      "mirrors": [
+        "https://maven-central.storage-download.googleapis.com/maven2/org/clojure/spec.alpha/0.5.238/spec.alpha-0.5.238.pom"
+      ],
       "hash": "sha256-PLp+DcwIXEzpLd3/6iJhJP+sF4vnm9A3m1suMKlpy+o="
     },
     {
@@ -112,5 +126,6 @@
       "mirrors": [],
       "hash": "sha256-1LvcRQ5FaR2KfmrAGBqOr5amU4spUZZWo/zO6JVNY0s="
     }
-  ]
+  ],
+  "integrity": "7cc81304685a5268a1d887b7b607c4b29de4f00aff1b4044eee176ef6362c99e"
 }

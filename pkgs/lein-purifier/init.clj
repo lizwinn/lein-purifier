@@ -46,7 +46,8 @@
 
 (defn purifier-info
   "Prints one record per line: `project` with the group, name and version;
-  `main` with the :main namespace, when the project has one; `dependency`
+  `main` with the :main namespace, when the project has one; `mirror` with
+  the repository name or pattern of each of its :mirrors; `dependency`
   with the group and name of each dependency; and `subproject` with each
   directory or glob that lein-sub (:sub) or lein-monolith
   (:monolith :project-dirs) names."
@@ -54,6 +55,8 @@
   (line "project" (:group project) (:name project) (:version project))
   (when-let [main (:main project)]
     (line "main" main))
+  (doseq [[repository] (:mirrors project)]
+    (line "mirror" (pr-str repository)))
   (doseq [[dependency] (:dependencies project)]
     (line "dependency" (or (namespace dependency) (name dependency)) (name dependency)))
   (doseq [directory (concat (:sub project) (get-in project [:monolith :project-dirs]))]

@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: MIT
 #
-# Runs every check of the flake (the unit tests, the fixture builds in the
-# Nix sandbox, the refusals of bad lockfiles and the formatting check) on
-# x86_64-linux and aarch64-linux, and tests the parts of lein-purifier that
-# run outside the sandbox: the lock run, the interactive mode and deploy.
+# The checks of the purifier contract, on x86_64-linux and aarch64-linux.
+# `checks` runs the flake checks: the unit tests, the fixture builds and
+# conformance-stale, -tampered, -missing, -malformed and -external. The
+# conformance checks that need Nix or the network outside the sandbox run
+# as jobs of the same name, and `publish` tests `lein-purifier publish`.
 name: check
 
 on:
@@ -15,7 +16,7 @@ permissions:
   contents: read
 
 jobs:
-  check:
+  checks:
     strategy:
       fail-fast: false
       matrix:
@@ -26,6 +27,54 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
       - run: nix flake check -L
-      - run: tests/lock.sh
-      - run: tests/interactive.sh
-      - run: tests/deploy.sh
+
+  conformance-relock:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+      - run: tests/relock.sh
+
+  conformance-rebuild:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+      - run: tests/rebuild.sh
+
+  conformance-offline:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+      # Ubuntu 24.04 lets only privileged processes make user namespaces,
+      # and the test makes one to cut the network off.
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: tests/offline.sh
+
+  publish:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+      - run: tests/publish.sh

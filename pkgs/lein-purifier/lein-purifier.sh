@@ -1,12 +1,15 @@
 # SPDX-License-Identifier: MIT
 #
-# lein-purifier: locks the downloads of a Leiningen project, runs
-# Leiningen on the locked downloads, and deploys the jars Nix builds.
+# lein-purifier: locks the downloads of a Leiningen project, prefetches
+# them, and publishes the jars Nix builds. Run as `lein`, through the link
+# of that name in the same package, it is the Leiningen of the everyday
+# loop, which works offline on the prefetched downloads.
 #
-# The package sets LEIN_PURIFIER_LIB (the Nix library, nix/lib),
-# LEIN_PURIFIER_FORMAT (the lock format version it reads),
-# LEIN_PURIFIER_INIT (the init.clj of a lock run) and LEIN_PURIFIER_NIXPKGS
-# (the nixpkgs that deploy builds the packages with).
+# The package sets LEIN_PURIFIER_FLAKE (the source of this flake, with its
+# flake.lock), LEIN_PURIFIER_SYSTEM (the Nix system), LEIN_PURIFIER_FORMAT
+# (the lock format version it reads), LEIN_PURIFIER_LEIN_VERSION (the
+# version of its Leiningen), LEIN_PURIFIER_INIT (the init.clj of a lock
+# run) and LEIN_PURIFIER_ENTRIES (entries.sh).
 
 lockName=lein-purifier.lock.json
 
@@ -20,19 +23,29 @@ source "$LEIN_PURIFIER_ENTRIES"
 usage() {
   cat <<'EOF'
 Usage:
-  lein-purifier lock [--force] [--no-uberjar]
+  lein-purifier lock [--force] [--no-uberjar] [--lockfile PATH]
       Runs the build of the project, and of each subproject that lein-sub
       or lein-monolith names, with an empty local Maven repository, and
       records every file Leiningen downloads in lein-purifier.lock.json.
       Without --force, an up-to-date lockfile is left as it is.
-  lein-purifier lein ARGS...
-      Runs Leiningen offline in the current directory, with a local
-      repository that holds exactly the locked files.
-  lein-purifier deploy REPOSITORY [NAME...]
-      Builds the packages of the lockfile with Nix and deploys their jar
-      and POM with `lein deploy` to REPOSITORY, a repository name the
-      project or the user profile defines, or a URL. Without NAME, every
-      project of the lockfile is deployed, in build order.
+  lein-purifier prefetch [--lockfile PATH]
+      Fetches every locked file into the Nix store and lays them out as
+      the local repository in .lein-purifier, with GC roots there, so the
+      everyday loop and the editor work with no network.
+  lein-purifier publish REPOSITORY [NAME...] [--lockfile PATH]
+      Builds the release of the project with Nix and deploys the jar and
+      the POM of each project with `lein deploy` to REPOSITORY, a
+      repository name the project or the user profile defines, or a URL.
+      Without NAME, every project of the lockfile is deployed, in build
+      order.
+  lein ARGS...
+      Leiningen, run offline on the prefetched files in a project with a
+      lockfile, and as itself anywhere else. LEIN_PURIFIER_LOCKFILE names a
+      lockfile outside the project, and LEIN_PURIFIER=0 runs Leiningen as
+      itself.
+
+--lockfile PATH reads or writes the lockfile at PATH, which may be outside
+the project, rather than lein-purifier.lock.json at the project root.
 EOF
 }
 
@@ -41,21 +54,38 @@ die() {
   exit 1
 }
 
-# The project root: the nearest directory, from here upwards, that holds a
-# lockfile, or else the nearest that holds project.clj.
-projectRoot() {
+# The nearest directory, from here upwards, that holds file $1, or nothing.
+findUp() {
   local dir
-  for marker in "$lockName" project.clj; do
-    dir=$(pwd)
-    while [ "$dir" != / ]; do
-      if [ -f "$dir/$marker" ]; then
-        echo "$dir"
-        return
-      fi
-      dir=$(dirname "$dir")
-    done
+  dir=$(pwd)
+  while [ "$dir" != / ]; do
+    if [ -f "$dir/$1" ]; then
+      echo "$dir"
+      return
+    fi
+    dir=$(dirname "$dir")
   done
-  die "no project.clj in $(pwd) or above it"
+}
+
+# The project root: the nearest directory, from here upwards, that holds a
+# lockfile, or else the nearest that holds project.clj. A subproject has
+# its own project.clj, and the root of the build holds the lockfile.
+projectRoot() {
+  local root
+  root=$(findUp "$lockName")
+  [ -n "$root" ] || root=$(findUp project.clj)
+  [ -n "$root" ] || die "no project.clj in $(pwd) or above it"
+  echo "$root"
+}
+
+# The lockfile of the project at $1: the path $2, when given, or else
+# lein-purifier.lock.json at the root.
+lockFilePath() {
+  if [ -n "$2" ]; then
+    realpath -m "$2"
+  else
+    echo "$1/$lockName"
+  fi
 }
 
 # The SHA-256, in hex, of project.clj and then profiles.clj of the root and
@@ -101,13 +131,97 @@ checkLockFile() {
 # Whether the lockfile was made from this project definition, by this
 # lock format and with this Leiningen, and is unchanged since.
 lockIsCurrent() {
-  local root=$1 lockFile=$2 versions dirs
+  local root=$1 lockFile=$2 dirs
   [ -f "$lockFile" ] || return 1
   (checkLockFile "$lockFile") 2>/dev/null || return 1
-  versions=$(leinVersion)
   mapfile -t dirs < <(jq -r '.projects[].dir' "$lockFile")
   [ "$(jq -r .definitionHash "$lockFile")" = "$(definitionHash "$root" "${dirs[@]}")" ] &&
-    [ "$(jq -r .leinVersion "$lockFile")" = "${versions%% *}" ]
+    [ "$(jq -r .leinVersion "$lockFile")" = "$LEIN_PURIFIER_LEIN_VERSION" ]
+}
+
+# Stops, naming the command that fixes it, when the lockfile at $2 of the
+# project at $1 is missing, malformed, edited or out of date.
+requireCurrentLock() {
+  local root=$1 lockFile=$2
+  [ -f "$lockFile" ] || die "$lockFile does not exist; run lein-purifier lock"
+  checkLockFile "$lockFile"
+  lockIsCurrent "$root" "$lockFile" ||
+    die "project.clj or profiles.clj changed, or Leiningen did, after $lockFile was made; run lein-purifier lock"
+}
+
+# A Nix expression that evaluates this flake from its store copy, with the
+# nixpkgs it pins, so the command builds with the same library as a Nix
+# build does. It is followed by an expression that uses `f` and `pkgs`.
+flakeExpression() {
+  printf 'let f = builtins.getFlake "path:%s"; pkgs = import f.inputs.nixpkgs { system = "%s"; }; in ' \
+    "$LEIN_PURIFIER_FLAKE" "$LEIN_PURIFIER_SYSTEM"
+}
+
+# Makes .lein-purifier/home/.m2/repository at the root $1 the local
+# repository of lockfile $2: links to the locked files in the store, and
+# links to the files of the repositories inside the project. Sets `home`.
+#
+# The files are the shared library's tree of the lockfile entries, fetched
+# with the nixpkgs fetcher, which tries the mirrors of an entry when its
+# URL fails. A GC root on the tree keeps them in the store, and another on
+# this package keeps Leiningen and the JDK. The tree is built again only
+# when the lockfile changes, so a prefetched project needs no Nix and no
+# network after that.
+prefetchRepository() {
+  local root=$1 lockFile=$2 state="$1/.lein-purifier" stamp
+  home="$state/home"
+  local m2="$home/.m2/repository" rel repository
+  mkdir -p "$state"
+  stamp=$(sha256sum <"$lockFile" | cut -d' ' -f1)
+  if [ "$(cat "$state/stamp" 2>/dev/null || true)" != "$stamp" ] || [ ! -e "$state/repository" ]; then
+    echo "lein-purifier: fetching the locked files of $lockFile" >&2
+    LEIN_PURIFIER_LOCK="$lockFile" nix build --impure --out-link "$state/repository" --expr "$(flakeExpression)
+      f.lib.purifier.tree {
+        inherit pkgs;
+        name = \"lein-purifier-repository\";
+        entries = (import \"$LEIN_PURIFIER_FLAKE/nix/lib/lock.nix\" {
+          lockFile = /. + builtins.getEnv \"LEIN_PURIFIER_LOCK\";
+        }).artifacts;
+      }"
+    # This script lies in bin/ of its package, whose closure holds
+    # Leiningen and the JDK.
+    nix-store --add-root "$state/toolchain" --indirect --realise "$(dirname "$(dirname "$(realpath "$0")")")" >/dev/null
+    # Maven Resolver writes next to what it reads, so the local repository
+    # is a writable tree of links into the store.
+    rm -rf "$home"
+    mkdir -p "$m2"
+    cp -rs --no-preserve=mode "$state/repository/." "$m2"
+    echo "$stamp" >"$state/stamp"
+  fi
+  # Offline, Maven Resolver reads no repository but the local one, so the
+  # files of each repository inside the project are linked into it, anew
+  # on every run.
+  while IFS= read -r repository; do
+    while IFS= read -r rel; do
+      mkdir -p "$m2/$(dirname "$rel")"
+      ln -sfn "$root/$repository/$rel" "$m2/$rel"
+    done < <(cd "$root/$repository" && find . -type f -printf '%P\n')
+  done < <(jq -r '.projectRepositories[]' "$lockFile")
+}
+
+# Runs Leiningen offline on the prefetched local repository in `home`, in
+# the current directory. The Leiningen home directory of the user, with its
+# profiles, stays in effect. A dependency the lock does not hold fails
+# offline with "in offline mode", and a copy of the error output of
+# Leiningen is searched for that afterwards.
+runOffline() {
+  local lockFile=$1 status=0 errors
+  shift
+  export LEIN_HOME="${LEIN_HOME:-$HOME/.lein}"
+  export LEIN_JVM_OPTS="-Duser.home=$home ${LEIN_JVM_OPTS:-}"
+  errors=$(mktemp)
+  lein -o "$@" 2> >(tee "$errors" >&2) || status=$?
+  wait
+  if [ $status != 0 ] && grep -q 'in offline mode' "$errors"; then
+    echo "lein-purifier: Leiningen needs an artifact that $lockFile does not hold, perhaps for a profile or a task the lock run did not use; run lein-purifier lock --force to lock again" >&2
+  fi
+  rm -f "$errors"
+  return $status
 }
 
 # The Maven repository path of a group, such as org/clojure for
@@ -117,11 +231,16 @@ groupPath() {
 }
 
 cmdLock() {
-  local force=0 uberjar=true
+  local force=0 uberjar=true lockOption=""
   while [ $# -gt 0 ]; do
     case $1 in
     --force) force=1 ;;
     --no-uberjar) uberjar=false ;;
+    --lockfile)
+      [ $# -ge 2 ] || die "lock: --lockfile needs a path"
+      lockOption=$2
+      shift
+      ;;
     *) die "lock: unknown argument $1" ;;
     esac
     shift
@@ -129,7 +248,7 @@ cmdLock() {
 
   local root lockFile
   root=$(projectRoot)
-  lockFile="$root/$lockName"
+  lockFile=$(lockFilePath "$root" "$lockOption")
   if [ $force = 0 ] && lockIsCurrent "$root" "$lockFile"; then
     echo "lein-purifier: $lockFile is up to date"
     return
@@ -143,15 +262,9 @@ cmdLock() {
   # Build outputs, version control and Leiningen checkouts (links to other
   # projects on this machine) stay out of the copy, as they stay out of a
   # sandboxed build.
-  tar -C "$root" --exclude=target --exclude=.git --exclude=checkouts -cf - . | tar -C "$work/project" -xf -
+  tar -C "$root" --exclude=target --exclude=.git --exclude=checkouts --exclude=.lein-purifier -cf - . |
+    tar -C "$work/project" -xf -
   cp "$LEIN_PURIFIER_INIT" "$work/home/.lein/init.clj"
-  # The user profile of the lock run downloads Maven Central through its
-  # mirror (see entries.sh). The mirror keeps the name `central`, so the
-  # metadata files keep the names a build without the mirror reads.
-  if [ -n "$centralMirror" ]; then
-    jq -rn --arg url "$centralMirror" '"{:user {:mirrors {\"central\" {:name \"central\" :url \"\($url)\"}}}}"' \
-      >"$work/home/.lein/profiles.clj"
-  fi
 
   # The lock run sees what a sandboxed build sees: an empty local
   # repository, no user profile, and none of the files in the home
@@ -198,7 +311,7 @@ cmdLock() {
 
   # What each project is, and which of the other projects it depends on.
   declare -A group name version main coordinates dependencies
-  local dir projectInfo
+  local dir projectInfo projectMirrors=0
   for dir in "${dirs[@]}"; do
     if [ "$dir" = . ]; then
       projectInfo=$info
@@ -211,7 +324,19 @@ cmdLock() {
     main[$dir]=$(awk -F'\t' '$1 == "main" { print $2 }' <<<"$projectInfo")
     dependencies[$dir]=$(awk -F'\t' '$1 == "dependency" { print $2 "/" $3 }' <<<"$projectInfo")
     coordinates["${group[$dir]}/${name[$dir]}"]=$dir
+    if grep -q '^mirror' <<<"$projectInfo"; then projectMirrors=1; fi
   done
+  if grep -q '^mirror' <<<"$info"; then projectMirrors=1; fi
+
+  # From here on, the user profile of the lock run downloads Maven Central
+  # through its mirror (see entries.sh). The mirror keeps the name
+  # `central`, so the metadata files keep the names that a build without
+  # the mirror reads. A project that configures :mirrors itself keeps its
+  # own, because Leiningen refuses two mirrors of one repository.
+  if [ -n "$centralMirror" ] && [ "$projectMirrors" = 0 ]; then
+    jq -rn --arg url "$centralMirror" '"{:user {:mirrors {\"central\" {:name \"central\" :url \"\($url)\"}}}}"' \
+      >"$work/home/.lein/profiles.clj"
+  fi
 
   # The build order: each project after the projects it depends on.
   local ordered=() remaining=("${dirs[@]}") next placed dependency ready
@@ -326,128 +451,115 @@ cmdLock() {
   echo "lein-purifier: wrote $lockFile ($(jq '.projects | length' "$lockFile") projects, $(jq '.artifacts | length' "$lockFile") entries)"
 }
 
-# Makes $state/home/.m2/repository the local repository of the lockfile:
-# links to the locked files in the store, and links to the files of the
-# repositories inside the project. Sets `home`.
-prepareRepository() {
-  local root=$1 lockFile=$2 state=$3 manifest
-  mkdir -p "$state"
-  # The locked files are fetched into the store, and one GC root on the
-  # manifest keeps them there. Without --read-write-mode, the evaluation
-  # would name the manifest file without writing it to the store.
-  nix-build "$LEIN_PURIFIER_LIB/realize.nix" --arg lockFile "$lockFile" -A fetches --no-out-link >/dev/null
-  manifest=$(nix-instantiate --eval --read-write-mode --json "$LEIN_PURIFIER_LIB/realize.nix" --arg lockFile "$lockFile" -A manifest | jq -r .)
-  nix-store --realise "$manifest" --add-root "$state/manifest" --indirect >/dev/null
-
-  # The local repository is a writable tree of links into the store, made
-  # anew when the manifest changes.
-  home="$state/home"
-  local m2="$home/.m2/repository" rel target repository
-  if [ "$(cat "$state/manifest.path" 2>/dev/null || true)" != "$manifest" ]; then
-    rm -rf "$home"
-    mkdir -p "$m2"
-    while IFS=$'\t' read -r rel target; do
-      mkdir -p "$m2/$(dirname "$rel")"
-      ln -s "$target" "$m2/$rel"
-    done <"$manifest"
-    echo "$manifest" >"$state/manifest.path"
-  fi
-  # Offline, Maven Resolver reads no repository but the local one, so the
-  # files of each repository inside the project are linked into it, anew
-  # on every run.
-  while IFS= read -r repository; do
-    while IFS= read -r rel; do
-      mkdir -p "$m2/$(dirname "$rel")"
-      ln -sfn "$root/$repository/$rel" "$m2/$rel"
-    done < <(cd "$root/$repository" && find . -type f -printf '%P\n')
-  done < <(jq -r '.projectRepositories[]' "$lockFile")
+# Splits the arguments of a command into --lockfile PATH, which it sets as
+# `lockOption`, and the rest, which it sets as `rest`.
+lockfileOption() {
+  lockOption=""
+  rest=()
+  while [ $# -gt 0 ]; do
+    if [ "$1" = --lockfile ]; then
+      [ $# -ge 2 ] || die "--lockfile needs a path"
+      lockOption=$2
+      shift 2
+    else
+      rest+=("$1")
+      shift
+    fi
+  done
 }
 
-cmdLein() {
-  local root lockFile home
+cmdPrefetch() {
+  local lockOption rest root lockFile home
+  lockfileOption "$@"
+  [ ${#rest[@]} -eq 0 ] || die "prefetch: unknown argument ${rest[0]}"
   root=$(projectRoot)
-  lockFile="$root/$lockName"
-  [ -f "$lockFile" ] || die "$lockFile does not exist; run lein-purifier lock"
-  checkLockFile "$lockFile"
-  if ! lockIsCurrent "$root" "$lockFile"; then
-    echo "lein-purifier: project.clj or profiles.clj changed, or Leiningen did, after $lockFile was made; Leiningen resolves the usual way until lein-purifier lock renews it" >&2
-    exec lein "$@"
-  fi
-  prepareRepository "$root" "$lockFile" "$root/target/lein-purifier"
-
-  # The JVM of Leiningen finds the local repository through user.home. The
-  # Leiningen home directory of the user, with its profiles, stays in
-  # effect.
-  export LEIN_HOME="${LEIN_HOME:-$HOME/.lein}"
-  export LEIN_JVM_OPTS="-Duser.home=$home ${LEIN_JVM_OPTS:-}"
-
-  # A dependency the lock does not hold fails offline with "in offline
-  # mode". Leiningen still writes to the terminal, and a copy of its error
-  # output is searched for that afterwards.
-  local errors="$root/target/lein-purifier/errors" status=0
-  lein -o "$@" 2> >(tee "$errors" >&2) || status=$?
-  wait
-  if [ $status != 0 ] && grep -q 'in offline mode' "$errors"; then
-    echo "lein-purifier: Leiningen needs an artifact that $lockFile does not hold. A profile or a plugin that the lock run did not use may need it; run lein-purifier lock --force to lock again" >&2
-  fi
-  return $status
+  lockFile=$(lockFilePath "$root" "$lockOption")
+  requireCurrentLock "$root" "$lockFile"
+  prefetchRepository "$root" "$lockFile"
+  echo "lein-purifier: prefetched $lockFile into $root/.lein-purifier"
 }
 
-cmdDeploy() {
-  [ $# -ge 1 ] || die "deploy: name the repository to deploy to"
-  local repository=$1
-  shift
-  local root lockFile home
+cmdPublish() {
+  local lockOption rest root lockFile home
+  lockfileOption "$@"
+  [ ${#rest[@]} -ge 1 ] || die "publish: name the repository to deploy to"
+  local repository=${rest[0]} names=("${rest[@]:1}")
   root=$(projectRoot)
-  lockFile="$root/$lockName"
-  [ -f "$lockFile" ] || die "$lockFile does not exist; run lein-purifier lock"
-  checkLockFile "$lockFile"
-  lockIsCurrent "$root" "$lockFile" ||
-    die "project.clj or profiles.clj changed, or Leiningen did, after $lockFile was made; run lein-purifier lock"
-
-  local state="$root/target/lein-purifier" names
-  if [ $# -gt 0 ]; then
-    names=("$@")
-  else
+  lockFile=$(lockFilePath "$root" "$lockOption")
+  requireCurrentLock "$root" "$lockFile"
+  if [ ${#names[@]} -eq 0 ]; then
     mapfile -t names < <(jq -r '.projects[].name' "$lockFile")
   fi
-  prepareRepository "$root" "$lockFile" "$state"
-  export LEIN_HOME="${LEIN_HOME:-$HOME/.lein}"
-  export LEIN_JVM_OPTS="-Duser.home=$home ${LEIN_JVM_OPTS:-}"
+  prefetchRepository "$root" "$lockFile"
 
-  local name record dir group version jar package
+  # The release is the one buildLeinProject builds, with the nixpkgs this
+  # flake pins, so its Leiningen is the one the lock was made with.
+  local release
+  echo "lein-purifier: building the release with Nix"
+  release=$(LEIN_PURIFIER_ROOT="$root" LEIN_PURIFIER_LOCK="$lockFile" nix build --impure --print-out-paths \
+    --out-link "$root/.lein-purifier/release" --expr "$(flakeExpression)
+      (f.lib.lein-purifier.buildLeinProject {
+        inherit pkgs;
+        src = /. + builtins.getEnv \"LEIN_PURIFIER_ROOT\";
+        lockFile = /. + builtins.getEnv \"LEIN_PURIFIER_LOCK\";
+      }).release")
+
+  local name record dir group version directory
   for name in "${names[@]}"; do
     record=$(jq -c --arg name "$name" '.projects[] | select(.name == $name)' "$lockFile")
     [ -n "$record" ] || die "the lockfile has no project $name"
     dir=$(jq -r .dir <<<"$record")
     group=$(jq -r .group <<<"$record")
     version=$(jq -r .version <<<"$record")
-    jar=$(jq -r '.outputs[] | select(endswith(".jar") and (endswith("-standalone.jar") | not))' <<<"$record" | head -n1)
-    [ -n "$jar" ] || die "the lockfile names no jar of $name"
-    # The package is the one buildLeinProject builds, with the nixpkgs of
-    # this command, so its Leiningen is the one the lock was made with.
-    echo "lein-purifier: building $name with Nix"
-    package=$(nix-build "$LEIN_PURIFIER_LIB/package.nix" \
-      --argstr nixpkgs "$LEIN_PURIFIER_NIXPKGS" --argstr src "$root" \
-      -A "packages.\"$name\"" -o "$state/package-$name")
+    directory="$release/$(groupPath "$group")/$name/$version"
     echo "lein-purifier: deploying $group/$name $version to $repository"
-    (cd "$root/$dir" && lein deploy "$repository" "$group/$name" "$version" \
-      "$package/share/java/$(basename "$jar")" "$package/share/java/$name-$version.pom")
+    # The upload needs the network, so Leiningen runs online here, on the
+    # prefetched local repository.
+    (cd "$root/$dir" &&
+      LEIN_HOME="${LEIN_HOME:-$HOME/.lein}" LEIN_JVM_OPTS="-Duser.home=$home ${LEIN_JVM_OPTS:-}" \
+        lein deploy "$repository" "$group/$name" "$version" \
+        "$directory/$name-$version.jar" "$directory/$name-$version.pom")
   done
 }
+
+# The `lein` of the everyday loop. In a project with a lockfile, it runs
+# Leiningen offline on the prefetched files, after a prefetch when the
+# lockfile changed. Anywhere else, and with LEIN_PURIFIER=0, it is
+# Leiningen itself.
+leinWrapper() {
+  local root lockFile home
+  if [ "${LEIN_PURIFIER:-1}" = 0 ]; then exec lein "$@"; fi
+  if [ -n "${LEIN_PURIFIER_LOCKFILE:-}" ]; then
+    lockFile=$(realpath -m "$LEIN_PURIFIER_LOCKFILE")
+    root=$(findUp project.clj)
+    [ -n "$root" ] || exec lein "$@"
+  else
+    root=$(findUp "$lockName")
+    [ -n "$root" ] || exec lein "$@"
+    lockFile="$root/$lockName"
+  fi
+  requireCurrentLock "$root" "$lockFile"
+  prefetchRepository "$root" "$lockFile"
+  runOffline "$lockFile" "$@"
+}
+
+if [ "$(basename "$0")" = lein ]; then
+  leinWrapper "$@"
+  exit
+fi
 
 case ${1:-} in
 lock)
   shift
   cmdLock "$@"
   ;;
-lein)
+prefetch)
   shift
-  cmdLein "$@"
+  cmdPrefetch "$@"
   ;;
-deploy)
+publish)
   shift
-  cmdDeploy "$@"
+  cmdPublish "$@"
   ;;
 -h | --help | help)
   usage

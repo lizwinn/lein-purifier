@@ -26,7 +26,8 @@
   };
 
   # `nix run github:nix-purifiers/lein-purifier -- lock` locks the project in
-  # the current directory.
+  # the current directory, and `nix shell github:nix-purifiers/lein-purifier`
+  # puts lein-purifier and its `lein` on the PATH.
   perSystem =
     { config, ... }:
     {
@@ -57,7 +58,7 @@
           {
             checks = import ../../../tests {
               inherit pkgs;
-              overlay = self.overlays.default;
+              inherit (self) lib;
               inherit (self.packages.${system}) cli;
             };
             treefmt.programs.nixfmt.enable = true;
