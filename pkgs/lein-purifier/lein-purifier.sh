@@ -613,7 +613,10 @@ leinWrapper() {
     [ -n "$root" ] || exec lein "$@"
   else
     root=$(findUp "$lockName")
-    [ -n "$root" ] || exec lein "$@"
+    if [ -z "$root" ]; then
+      echo "lein-purifier: warning: no lein-purifier.lock.json found; running lein impurely. Run \`lein-purifier lock\` to use Nix-resolved dependencies." >&2
+      exec lein "$@"
+    fi
     lockFile="$root/$lockName"
   fi
   requireCurrentLock "$root" "$lockFile"

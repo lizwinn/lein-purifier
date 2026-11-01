@@ -1,111 +1,49 @@
 # lein-purifier
 
-lein-purifier builds [Leiningen](https://leiningen.org) projects in the Nix
-sandbox. `lein-purifier lock` records every file Leiningen downloads in
-`lein-purifier.lock.json`, and Nix builds the project from that lockfile,
-offline. You commit the lockfile, and no generated Nix files. lein-purifier
-is one of the [nix-purifiers](https://nix-purifiers.github.io), and it meets
-their [contract](https://github.com/nix-purifiers/purifier/blob/main/CONTRACT.md).
+lein-purifier keeps Leiningen's development workflow on locked,
+Nix-resolved dependencies. Use the normal build and test commands in your
+working tree; building the project itself in the Nix sandbox is an
+optional next step.
+
+It follows the [purifier contract](https://github.com/nix-purifiers/purifier/blob/main/CONTRACT.md).
+
+## Installation
+
+Install the integration into your Nix profile once:
+
+```sh
+nix profile install 'github:nix-purifiers/lein-purifier'
+```
+
+This installs the `lein` wrapper. Use it for the locked
+development workflow below. With no purifier lockfile, it warns on standard
+error and runs the ordinary tool with impure resolution.
+
+`nix shell` makes an integration available temporarily instead of installing
+it. Keep using the activation steps below where a project environment or
+prefetched cache is required.
 
 ## Quickstart
 
-Lock the project from its root, and commit the lockfile:
+Install Nix, then run the following from your existing project's root.
+The setup prepares the locked dependencies and the integration that
+Leiningen's normal commands use:
 
 ```zsh
-nix run github:nix-purifiers/lein-purifier -- lock
+nix shell github:nix-purifiers/lein-purifier
+lein-purifier lock
+lein test
+lein uberjar
 ```
 
-Then build the project from its directory, with no Nix file added to the
-project. The expression names the package `hello`, which is the name of the
-project in `project.clj`:
+Commit the lockfiles that the lock command writes, including the build
+tool's own lockfile when it has one. Keep using the project's usual build,
+test and editor commands with this setup. Nix provides the locked
+dependencies; the development commands above run outside the Nix sandbox.
+No project Nix files are needed for this workflow.
 
-```zsh
-nix build --impure --expr '
-  let
-    purifier = builtins.getFlake "github:nix-purifiers/lein-purifier";
-    pkgs = import purifier.inputs.nixpkgs {
-      system = builtins.currentSystem;
-      overlays = [ purifier.overlays.default ];
-    };
-  in
-  (pkgs.lein-purifier.buildLeinProject { src = ./.; }).packages.hello'
-```
-
-This uses the purifier's pinned nixpkgs, matching the lock command above.
-To build with ambient `<nixpkgs>` from your Nix search path instead,
-replace `import purifier.inputs.nixpkgs` with `import <nixpkgs>`.
-Both forms need no Nix files in your project. The build tool and language
-versions must match the lockfile; with ambient nixpkgs, lock with the
-purifier from that package set or pass a compatible toolchain to the builder.
-
-The flake's `overlays.default` adds one attribute to a package set: the
-scope `lein-purifier`, which holds `buildLeinProject` and the command.
-
-A project whose authors want a flake can add one that calls the builder
-directly. It can live in the project's repository or in another one, and
-it gives `nix build` and `nix flake check`:
-
-```nix
-{
-  inputs.lein-purifier.url = "github:nix-purifiers/lein-purifier";
-  inputs.nixpkgs.follows = "lein-purifier/nixpkgs";
-
-  outputs = { nixpkgs, lein-purifier, ... }:
-    let
-      system = "x86_64-linux";
-      pkgs = import nixpkgs {
-        inherit system;
-        overlays = [ lein-purifier.overlays.default ];
-      };
-      project = pkgs.lein-purifier.buildLeinProject { src = ./.; };
-    in
-    {
-      packages.${system}.default = project.packages.hello;
-      checks.${system}.tests = project.tests;
-    };
-}
-```
-
-The builder's result has:
-
-- `packages.<name>`: a package for each project, named after it, with the
-  jar, the uberjar and the POM in `share/java`, and a launcher in `bin` for
-  a project with `:main`. A package lists its jars in `artifacts`, such as
-  `artifacts."hello-1.0.0-standalone.jar"`, which are known from the
-  lockfile before the build runs.
-- `tests`: `lein test` of every project, in the sandbox.
-- `release`: the jar and the POM of every project in Maven repository
-  layout, which `lein-purifier publish` deploys.
-- `fetches`: the entries of the lockfile, for SBOM, license and
-  vulnerability tools.
-
-`lein-purifier.lib.lein-purifier.readLock { src, lockFile ? ... }` reads
-the lockfile into the shape every purifier shares: `purifier`, the
-download `entries`, the `outputs` of each project (its directory, group,
-version, main class, jars and the projects of the build it depends on)
-and the `problems` that stop a build, each naming the command to run. The
-builder reads the lockfile through it.
-
-The builder takes `src` and these arguments:
-
-- `fetchers`, passed to the shared library's `fetchEntry`, such as a
-  `fetchurl` with credentials or a company mirror;
-- `lockFile` is optional. By default the builder reads the
-  `lein-purifier.lock.json` that you commit to the repository, and you pass
-  `lockFile` to keep the lockfile elsewhere, as for a project you package
-  but do not change;
-- `jdk`, whose default is the headless JDK of the major version the lock
-  was made with;
-- `srcFilter`.
-
-`buildLeinProject` takes what it needs by name (`stdenvNoCC`,
-`javaPackages`, `leiningen` and the others), so
-`lein-purifier.buildLeinProject.override` replaces any of them, and
-`lein-purifier.overrideScope` replaces what the scope shares. We
-recommend following the nixpkgs input of lein-purifier, as above: the
-builder uses the Leiningen of the package set, and it refuses a lockfile
-made with another Leiningen version, because each version adds its own
-nREPL dependencies to every project.
+Sandboxed builds of the whole project are an optional
+[next step](#building-the-project-with-nix).
 
 ## Development loop
 
@@ -188,6 +126,107 @@ turns it off.
 and deploys each project's jar and POM with `lein deploy`, so nothing is
 compiled outside the sandbox. The repository, its credentials and signing
 work as they do for `lein deploy`.
+
+## Building the project with Nix
+
+Once the native development workflow is working, you can also build and
+test the whole project in the Nix sandbox. For this step, keep a flake or
+another Nix build definition in the project's repository, or maintain an
+external packaging repository that points at its sources and lockfiles.
+The builder consumes the same lockfiles as the development workflow.
+
+The flake's `overlays.default` adds one attribute to a package set: the
+scope `lein-purifier`, which holds `buildLeinProject` and the command.
+
+A project whose authors want a flake can add one that calls the builder
+directly. It can live in the project's repository or in another one, and
+it gives `nix build` and `nix flake check`:
+
+```nix
+{
+  inputs.lein-purifier.url = "github:nix-purifiers/lein-purifier";
+  inputs.nixpkgs.follows = "lein-purifier/nixpkgs";
+
+  outputs = { nixpkgs, lein-purifier, ... }:
+    let
+      system = "x86_64-linux";
+      pkgs = import nixpkgs {
+        inherit system;
+        overlays = [ lein-purifier.overlays.default ];
+      };
+      project = pkgs.lein-purifier.buildLeinProject { src = ./.; };
+    in
+    {
+      packages.${system}.default = project.packages.hello;
+      checks.${system}.tests = project.tests;
+    };
+}
+```
+
+The builder's result has:
+
+- `packages.<name>`: a package for each project, named after it, with the
+  jar, the uberjar and the POM in `share/java`, and a launcher in `bin` for
+  a project with `:main`. A package lists its jars in `artifacts`, such as
+  `artifacts."hello-1.0.0-standalone.jar"`, which are known from the
+  lockfile before the build runs.
+- `tests`: `lein test` of every project, in the sandbox.
+- `release`: the jar and the POM of every project in Maven repository
+  layout, which `lein-purifier publish` deploys.
+- `fetches`: the entries of the lockfile, for SBOM, license and
+  vulnerability tools.
+
+`lein-purifier.lib.lein-purifier.readLock { src, lockFile ? ... }` reads
+the lockfile into the shape every purifier shares: `purifier`, the
+download `entries`, the `outputs` of each project (its directory, group,
+version, main class, jars and the projects of the build it depends on)
+and the `problems` that stop a build, each naming the command to run. The
+builder reads the lockfile through it.
+
+The builder takes `src` and these arguments:
+
+- `fetchers`, passed to the shared library's `fetchEntry`, such as a
+  `fetchurl` with credentials or a company mirror;
+- `lockFile` is optional. By default the builder reads the
+  `lein-purifier.lock.json` that you commit to the repository, and you pass
+  `lockFile` to keep the lockfile elsewhere, as for a project you package
+  but do not change;
+- `jdk`, whose default is the headless JDK of the major version the lock
+  was made with;
+- `srcFilter`.
+
+`buildLeinProject` takes what it needs by name (`stdenvNoCC`,
+`javaPackages`, `leiningen` and the others), so
+`lein-purifier.buildLeinProject.override` replaces any of them, and
+`lein-purifier.overrideScope` replaces what the scope shares. We
+recommend following the nixpkgs input of lein-purifier, as above: the
+builder uses the Leiningen of the package set, and it refuses a lockfile
+made with another Leiningen version, because each version adds its own
+nREPL dependencies to every project.
+
+### One-off builds without a project Nix file
+
+For an ad hoc build, the builder can also be evaluated directly from the
+project root. Replace the example package name with one from your project:
+
+```zsh
+nix build --impure --expr '
+  let
+    purifier = builtins.getFlake "github:nix-purifiers/lein-purifier";
+    pkgs = import purifier.inputs.nixpkgs {
+      system = builtins.currentSystem;
+      overlays = [ purifier.overlays.default ];
+    };
+  in
+  (pkgs.lein-purifier.buildLeinProject { src = ./.; }).packages.hello'
+```
+
+This uses the purifier's pinned nixpkgs, matching the lock command above.
+To build with ambient `<nixpkgs>` from your Nix search path instead,
+replace `import purifier.inputs.nixpkgs` with `import <nixpkgs>`.
+Both forms need no Nix files in your project. The build tool and language
+versions must match the lockfile; with ambient nixpkgs, lock with the
+purifier from that package set or pass a compatible toolchain to the builder.
 
 ## Working offline
 
@@ -275,6 +314,11 @@ profile by operating system or architecture is the exception: the lock
 holds what the platform of the lock run resolved.
 
 ## Examples
+
+For day-to-day work on these projects, use the native-tool setup and
+commands in [Quickstart](#quickstart) and [Development loop](#development-loop).
+The Nix expressions below show optional sandboxed packaging of those
+projects.
 
 ### Ring
 
