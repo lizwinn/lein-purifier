@@ -37,10 +37,10 @@ let
   # Ring, a well-known Leiningen project with five subprojects that lein-sub
   # names, pinned to a commit. Its lockfile is kept outside its source, as
   # a packaging flake keeps it for a project it does not change.
-  ringSource = pkgs.fetchFromGitHub {
-    owner = "ring-clojure";
-    repo = "ring";
-    rev = "6238fe0e2e4506e28a0ce6ade9ae514f7b02cbee";
+  # The builder reads project.clj during evaluation, so the source must
+  # already be a tree rather than an output requiring a foreign-system build.
+  ringSource = builtins.fetchTarball {
+    url = "https://github.com/ring-clojure/ring/archive/6238fe0e2e4506e28a0ce6ade9ae514f7b02cbee.tar.gz";
     sha256 = "0hv2g5gy48qj0czg7h1ikkr6bp5ymdl5a2jx1qknrlkx79k8174d";
   };
   ring = build {
@@ -248,7 +248,9 @@ in
   example-ring-tests = ring.tests;
 
   # The pinned source of Ring, which tests/relock.sh locks again.
-  ring-source = ringSource;
+  ring-source = pkgs.runCommand "ring-source" { } ''
+    cp -r ${ringSource} "$out"
+  '';
 
   # A package written for callPackage takes the builder by name, as any
   # package in an overlay does.
