@@ -182,7 +182,7 @@ requireCurrentLock() {
 # nixpkgs it pins, so the command builds with the same library as a Nix
 # build does. It is followed by an expression that uses `f` and `pkgs`.
 flakeExpression() {
-  printf 'let f = builtins.getFlake "path:%s"; pkgs = import f.inputs.nixpkgs { system = "%s"; }; in ' \
+  printf 'let f = builtins.getFlake "path:%s"; pkgs = import f.inputs.nixpkgs { system = "%s"; overlays = [ f.overlays.default ]; }; in ' \
     "$LEIN_PURIFIER_FLAKE" "$LEIN_PURIFIER_SYSTEM"
 }
 
@@ -577,8 +577,7 @@ cmdPublish() {
   echo "lein-purifier: building the release with Nix"
   release=$(LEIN_PURIFIER_ROOT="$root" LEIN_PURIFIER_LOCK="$lockFile" nix build --impure --print-out-paths \
     --out-link "$(dirname "$lockFile")/.lein-purifier/release" --expr "$(flakeExpression)
-      (f.lib.lein-purifier.buildLeinProject {
-        inherit pkgs;
+      (pkgs.buildLeinProject {
         src = /. + builtins.getEnv \"LEIN_PURIFIER_ROOT\";
         lockFile = /. + builtins.getEnv \"LEIN_PURIFIER_LOCK\";
       }).release")

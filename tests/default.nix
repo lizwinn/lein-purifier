@@ -9,13 +9,16 @@
   pkgs,
   # The flake's library, with `lein-purifier` and the shared `purifier`.
   lib,
+  # The flake's default package overlay, which adds buildLeinProject.
+  overlay,
   # The lein-purifier command.
   cli,
 }:
 let
   # Every fixture builds the way a consumer's package does: through the
-  # builder of the flake's library.
-  build = args: lib.lein-purifier.buildLeinProject ({ inherit pkgs; } // args);
+  # builder that the overlay adds to the package set.
+  withOverlay = pkgs.extend overlay;
+  build = withOverlay.buildLeinProject;
 
   # An application with dependencies from Maven Central and Clojars, a
   # plugin, a test profile and an uberjar with a main class.
@@ -246,6 +249,34 @@ in
 
   # The pinned source of Ring, which tests/relock.sh locks again.
   ring-source = ringSource;
+
+  # A package written for callPackage takes the builder by name, as any
+  # package in an overlay does.
+  consumer-package =
+    let
+      consumerPkgs = withOverlay.extend (
+        final: prev: {
+          hello-from-lein = final.callPackage (
+            { buildLeinProject }: (buildLeinProject { src = ./fixtures/hello; }).packages.hello
+          ) { };
+        }
+      );
+    in
+    runs "consumer-package" consumerPkgs.hello-from-lein ''{"hello":"world"}'';
+
+  # buildLeinProject.override replaces what the builder takes from the
+  # package set: with no JDKs in javaPackages, the build has none to run on
+  # and fails evaluation.
+  builder-override =
+    let
+      overridden = withOverlay.buildLeinProject.override {
+        javaPackages = {
+          compiler = { };
+        };
+      };
+    in
+    assert !(builtins.tryEval (overridden { src = ./fixtures/hello; }).packages.hello.drvPath).success;
+    pkgs.runCommand "builder-override" { } "touch $out";
 
   # A project whose source holds no lockfile builds from a lockfile kept
   # outside it.

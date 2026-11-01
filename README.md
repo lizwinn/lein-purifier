@@ -15,7 +15,15 @@ Lock the project from its root, and commit the lockfile:
 nix run github:nix-purifiers/lein-purifier -- lock
 ```
 
-Build it with the builder of the flake's library:
+The flake's `overlays.default` adds `buildLeinProject` to a package set,
+and a package written for `callPackage` takes it by name, like any other
+builder:
+
+```nix
+# package.nix
+{ buildLeinProject }:
+(buildLeinProject { src = ./.; }).packages.hello
+```
 
 ```nix
 {
@@ -25,15 +33,17 @@ Build it with the builder of the flake's library:
   outputs = { nixpkgs, lein-purifier, ... }:
     let
       system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system};
-      project = lein-purifier.lib.lein-purifier.buildLeinProject {
-        inherit pkgs;
-        src = ./.;
+      pkgs = import nixpkgs {
+        inherit system;
+        overlays = [
+          lein-purifier.overlays.default
+          (final: prev: { hello = final.callPackage ./package.nix { }; })
+        ];
       };
     in
     {
-      packages.${system}.default = project.packages.hello;
-      checks.${system}.tests = project.tests;
+      packages.${system}.default = pkgs.hello;
+      checks.${system}.tests = (pkgs.buildLeinProject { src = ./.; }).tests;
     };
 }
 ```
@@ -58,16 +68,25 @@ version, main class, jars and the projects of the build it depends on)
 and the `problems` that stop a build, each naming the command to run. The
 builder reads the lockfile through it.
 
-The builder also takes `fetchers` (passed to the shared library's
-`fetchEntry`, such as a `fetchurl` with credentials or a company mirror),
-`lockFile` (a lockfile outside `src`, for a project you package but do not
-change), `jdk` (the default is the headless JDK of the major version the
-lock was made with) and `srcFilter`. We recommend following the nixpkgs
-input of lein-purifier, as above: the builder uses the Leiningen of `pkgs`,
-and it refuses a lockfile made with another Leiningen version, because each
-version adds its own nREPL dependencies to every project.
+The builder takes `src` and these arguments:
 
-## Everyday loop
+- `fetchers`, passed to the shared library's `fetchEntry`, such as a
+  `fetchurl` with credentials or a company mirror;
+- `lockFile`, a lockfile outside `src`, for a project you package but do
+  not change;
+- `jdk`, whose default is the headless JDK of the major version the lock
+  was made with;
+- `srcFilter`.
+
+`buildLeinProject` takes what it needs from the package set by name
+(`stdenvNoCC`, `javaPackages`, `leiningen` and the others), so
+`buildLeinProject.override` or an overlay replaces any of them. We
+recommend following the nixpkgs input of lein-purifier, as above: the
+builder uses the Leiningen of the package set, and it refuses a lockfile
+made with another Leiningen version, because each version adds its own
+nREPL dependencies to every project.
+
+## Development loop
 
 `nix shell github:nix-purifiers/lein-purifier` puts `lein-purifier` and
 its `lein` on the `PATH`, as does a development shell with the `cli`
@@ -141,7 +160,7 @@ and deploys each project's jar and POM with `lein deploy`, so nothing is
 compiled outside the sandbox. The repository, its credentials and signing
 work as they do for `lein deploy`.
 
-## Offline work
+## Working offline
 
 ```zsh
 lein-purifier prefetch
@@ -151,7 +170,7 @@ fetches every locked file into the Nix store and lays them out as the
 local Maven repository in `.lein-purifier/` at the project root, with GC
 roots there for the files and for lein-purifier with its Leiningen and
 JDK. `lein` prefetches by itself when the lockfile changed, and after
-that, the everyday loop and the editor need no network. Add
+that, the development loop and the editor need no network. Add
 `.lein-purifier/` to `.gitignore`.
 
 ## Editor
@@ -164,7 +183,7 @@ editor sees the same jars as the build. Start the editor from the shell
 that has lein-purifier, or from a development shell with the `cli`
 package.
 
-## Errors and fixes
+## Troubleshooting
 
 | Message | Cause | Fix |
 | --- | --- | --- |
@@ -180,7 +199,7 @@ Nix reports the same messages at evaluation, so a broken lockfile fails
 before anything builds. `LEIN_PURIFIER=0 lein` runs Leiningen as itself,
 and `LEIN_PURIFIER_TRACE=1` prints each command lein-purifier runs.
 
-## Sources supported and refused
+## Supported language repositories
 
 Supported:
 
@@ -203,7 +222,7 @@ Supported:
   builds one package per subproject, with the packages of the subprojects
   it depends on in its local repository.
 
-Refused, and why:
+Limits:
 
 - **Git dependencies and URL tarballs.** Leiningen resolves dependencies
   from Maven repositories only. Git dependencies exist only through
@@ -214,12 +233,12 @@ Refused, and why:
   a project uses one.
 - **Checkouts.** Leiningen checkouts are links from `checkouts/` to other
   projects on the same machine, so the lock run and the sandboxed build
-  leave them out. The everyday loop keeps them, since it runs in the
+  leave them out. The development loop keeps them, since it runs in the
   project itself.
 - **The user profile in the lock and the build.** The lock run and the
   sandboxed build ignore `~/.lein/profiles.clj`, so a project that needs
   something from it declares it in `project.clj` or `profiles.clj`. The
-  everyday loop keeps the user profile.
+  development loop keeps the user profile.
 
 Leiningen selects the same artifacts on every platform, so one lockfile
 serves x86_64-linux and aarch64-linux. A dependency whose POM activates a
@@ -261,9 +280,11 @@ flake:
   outputs = { nixpkgs, lein-purifier, ring, ... }:
     let
       system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system};
-      project = lein-purifier.lib.lein-purifier.buildLeinProject {
-        inherit pkgs;
+      pkgs = import nixpkgs {
+        inherit system;
+        overlays = [ lein-purifier.overlays.default ];
+      };
+      project = pkgs.buildLeinProject {
         src = ring;
         lockFile = ./ring.lock.json;
       };
@@ -292,7 +313,7 @@ lein test
 ```
 
 A subproject finds a sibling it depends on only after `lein install` in
-the sibling's directory, as the Everyday loop section describes. Ring
+the sibling's directory, as the Development loop section describes. Ring
 lists `ring-jetty-adapter` before `ring-jakarta-servlet`, which it needs,
 so install `ring-jakarta-servlet` first.
 
@@ -301,7 +322,7 @@ so install `ring-jakarta-servlet` first.
 lein-purifier follows the design of
 [sbt-nix-backend](https://github.com/clhodapp/sbt-nix-backend), which is
 becoming sbt-purifier: a lock run in the sandbox environment, a lockfile of
-downloads and outputs, sandboxed builds, an offline everyday loop and a
+downloads and outputs, sandboxed builds, an offline development loop and a
 publish step from what Nix built. The purifier idea was inspired by
 nixcloud's [cargo (libnix)](https://github.com/nixcloud/cargo). It is MIT
 licensed.

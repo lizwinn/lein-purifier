@@ -1,12 +1,19 @@
 # SPDX-License-Identifier: MIT
 #
 # buildLeinProject: the sandboxed builds of a Leiningen project, from the
-# lockfile `lein-purifier lock` writes at the project root. The flake's
-# library holds it as `lib.lein-purifier.buildLeinProject`:
+# lockfile `lein-purifier lock` writes at the project root.
 #
-#   lein-purifier.lib.lein-purifier.buildLeinProject { inherit pkgs; src = ./.; }
+# The file is a package for callPackage. The first argument set is what it
+# takes from the package set by name, and the result is the builder. The
+# flake's `overlays.default` adds the builder to the package set as
+# `buildLeinProject`, so a package written for callPackage takes it like
+# any other builder, and `buildLeinProject.override` replaces what it
+# takes:
 #
-# The result has, by the purifier contract,
+#   { buildLeinProject }: (buildLeinProject { src = ./.; }).packages.hello
+#
+# The builder takes `src`, `lockFile`, `fetchers`, `jdk` and `srcFilter`.
+# Its result has, by the purifier contract,
 #
 #   packages.<name>  the package of each project of the lock, named as the
 #                    project is: the root project, or each subproject that
@@ -21,16 +28,29 @@
 #
 # and also `lock`, the lockfile as builtins.fromJSON reads it, `dependencies`, the
 # local Maven repository of every entry, and `jdk`.
-{ lib }:
 {
-  pkgs,
+  lib,
+  stdenvNoCC,
+  runCommand,
+  linkFarm,
+  fetchurl,
+  makeWrapper,
+  strip-nondeterminism,
+  # The JDKs a build can run on. The default JDK of a build is the headless
+  # one of the major version its lock was made with.
+  javaPackages,
+  leiningen,
+  # The shared library of the nix-purifiers.
+  purifier,
+}:
+{
   # The project root, which holds project.clj.
   src,
   # Passed to the shared library's fetchEntry and tree, such as a
   # `fetchurl` that sends credentials or uses a company mirror.
   fetchers ? { },
   # The lockfile. The default is the one `lein-purifier lock` writes at the
-  # project root.
+  # project root, and a lockfile outside `src` takes its place.
   lockFile ? src + "/lein-purifier.lock.json",
   # The JDK that runs Leiningen and the JVMs of the project. The default
   # is the headless JDK of the major version the lock was made with.
@@ -44,7 +64,7 @@ let
   # The lock in memory (read-lock.nix). Each Leiningen version adds its own
   # nREPL dependencies to every project, so a lock made with another
   # Leiningen does not hold them, which is a problem only the builder,
-  # with its package set, can find. checkLock stops the build before it
+  # with its Leiningen, can find. checkLock stops the build before it
   # starts when there is any problem.
   inMemory = import ./read-lock.nix { inherit lib; } { inherit src lockFile; };
   # The lockfile itself, for what only lein-purifier needs: the Leiningen
@@ -54,7 +74,7 @@ let
   leinProblem =
     lib.optional (inMemory.problems == [ ] && raw.leinVersion != leiningen.version)
       "lein-purifier: ${toString lockFile} was made with Leiningen ${raw.leinVersion}, and this nixpkgs has Leiningen ${leiningen.version}; run `lein-purifier lock` with the lein-purifier of this nixpkgs, or use the nixpkgs input of lein-purifier.";
-  checked = lib.purifier.checkLock (inMemory // { problems = inMemory.problems ++ leinProblem; });
+  checked = purifier.checkLock (inMemory // { problems = inMemory.problems ++ leinProblem; });
   lock = builtins.seq checked raw;
 
   defaultSrcFilter =
@@ -88,19 +108,19 @@ let
 
   javaMajor = lock.javaMajor;
   defaultJdk =
-    pkgs.javaPackages.compiler."openjdk${javaMajor}".headless
-      or (throw "lein-purifier: nixpkgs has no openjdk${javaMajor}, the JDK major version the lock was made with; pass `jdk`.");
+    javaPackages.compiler."openjdk${javaMajor}".headless
+      or (throw "lein-purifier: javaPackages has no openjdk${javaMajor}, the JDK major version the lock was made with; pass `jdk`.");
   jdk' = if jdk != null then jdk else defaultJdk;
 
   # The nixpkgs leiningen wrapper exports the JAVA_CMD it was built with,
   # so the JDK is chosen through the override.
-  leiningen = pkgs.leiningen.override { jdk = jdk'; };
+  leinWithJdk = leiningen.override { jdk = jdk'; };
 
-  dependencies = lib.purifier.tree (
+  dependencies = purifier.tree (
     {
-      inherit pkgs;
+      pkgs = { inherit fetchurl runCommand; };
       name = "lein-purifier-repository";
-      entries = lib.purifier.entriesFor pkgs.stdenv.hostPlatform.system checked;
+      entries = purifier.entriesFor stdenvNoCC.hostPlatform.system checked;
     }
     // fetchers
   );
@@ -196,16 +216,16 @@ let
       uberjar = uberjarOutput project;
       launcher = project.mainClass != null && uberjar != null;
     in
-    pkgs.stdenvNoCC.mkDerivation (finalAttrs: {
+    stdenvNoCC.mkDerivation (finalAttrs: {
       pname = project.name;
       inherit (project) version;
       src = filteredSrc;
       nativeBuildInputs = [
         jdk'
-        leiningen
-        pkgs.strip-nondeterminism
+        leinWithJdk
+        strip-nondeterminism
       ]
-      ++ lib.optional launcher pkgs.makeWrapper;
+      ++ lib.optional launcher makeWrapper;
       dontConfigure = true;
       preBuild = setUp project;
       buildPhase = ''
@@ -256,12 +276,12 @@ let
   # depends on are built.
   mkTest =
     project:
-    pkgs.stdenvNoCC.mkDerivation {
+    stdenvNoCC.mkDerivation {
       name = "${project.name}-tests";
       src = filteredSrc;
       nativeBuildInputs = [
         jdk'
-        leiningen
+        leinWithJdk
       ];
       dontConfigure = true;
       preBuild = setUp project;
@@ -280,14 +300,14 @@ let
     }) lock.projects
   );
 
-  tests = pkgs.linkFarm "lein-purifier-tests" (
+  tests = linkFarm "lein-purifier-tests" (
     map (project: {
       inherit (project) name;
       path = mkTest project;
     }) lock.projects
   );
 
-  release = pkgs.runCommand "lein-purifier-release" { } (
+  release = runCommand "lein-purifier-release" { } (
     lib.concatMapStrings (
       project:
       let
