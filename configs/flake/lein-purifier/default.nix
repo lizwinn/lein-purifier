@@ -16,12 +16,14 @@
       inherit (libOverlays) default;
     };
 
-    # The packages are the `default` entry of this flake's package overlay
-    # registry (pkg-overlays/): the package set applies it by default, and
-    # the flake exports it as `pkgOverlays` and as the plain
-    # `overlays.default`.
+    # The `default` entry of this flake's package overlay registry
+    # (pkg-overlays/) is exported as `pkgOverlays` and as the plain
+    # `overlays.default`, and the package set applies it by default. The
+    # flake publishes as `packages` the derivations of the scope
+    # `lein-purifier` below, and caisson's export would add
+    # `buildLeinProject`, which is a function and not a package.
     nixpkgs = {
-      packages.export.enabled = true;
+      packages.export.enabled = false;
     };
   };
 
@@ -29,9 +31,11 @@
   # the current directory, and `nix shell github:nix-purifiers/lein-purifier`
   # puts lein-purifier and its `lein` on the PATH.
   perSystem =
-    { config, ... }:
+    { pkgs, ... }:
     {
-      packages.default = config.packages.cli;
+      packages = lib.filterAttrs (_: lib.isDerivation) pkgs.lein-purifier // {
+        default = pkgs.lein-purifier.cli;
+      };
     };
 
   partitionedAttrs.checks = "checks";
