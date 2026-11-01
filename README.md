@@ -139,14 +139,22 @@ Leiningen has no lockfile of its own, so the versions that a version range
 or a SNAPSHOT dependency resolves to are recorded only in
 `lein-purifier.lock.json`. `lein-purifier lock` keeps them: it gives the
 lock run the repository metadata the lockfile recorded, and Maven Resolver
-picks the same versions from it. To move them, run
+picks the same versions from it. Leiningen has no update command either,
+so `lein-purifier update` resolves the version ranges and SNAPSHOT
+versions anew against the repositories and relocks:
 
 ```zsh
 lein-purifier update                        # every version range and SNAPSHOT
 lein-purifier update org.clojure/data.json  # only this package
 ```
 
-which resolves them anew against the repositories and relocks.
+A dependency with a fixed version stays as it is, and you change it in
+`project.clj`.
+
+lein-purifier is a command that starts Leiningen, not a Leiningen plugin.
+The lock run has to start Leiningen with an empty home directory and a
+local repository seeded from the lockfile, which a plugin that a running
+Leiningen loads cannot arrange.
 
 Maven Central limits the requests that come from one address, so the lock
 run downloads its files through Google's mirror of it, unless the project
