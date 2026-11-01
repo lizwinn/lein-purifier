@@ -72,8 +72,10 @@ The builder takes `src` and these arguments:
 
 - `fetchers`, passed to the shared library's `fetchEntry`, such as a
   `fetchurl` with credentials or a company mirror;
-- `lockFile`, a lockfile outside `src`, for a project you package but do
-  not change;
+- `lockFile` is optional. By default the builder reads the
+  `lein-purifier.lock.json` that you commit to the repository, and you pass
+  `lockFile` to keep the lockfile elsewhere, as for a project you package
+  but do not change;
 - `jdk`, whose default is the headless JDK of the major version the lock
   was made with;
 - `srcFilter`.
@@ -259,43 +261,31 @@ holds what the platform of the lock run resolved.
 
 [Ring](https://github.com/ring-clojure/ring) is the web application
 library of the Clojure ecosystem. It is a lein-sub project with a
-subproject for each part of the library, and you do not change it, so you
-keep its lockfile in your own flake repository, next to the flake that
-builds it.
+subproject for each part of the library. Say you work on a fork of it.
 
-Check out Ring beside your flake, and lock it into your repository:
+Lock the fork from its root, and commit the lockfile to the repository
+with a flake that builds the project:
 
 ```zsh
 git clone https://github.com/ring-clojure/ring
 cd ring
-nix run github:nix-purifiers/lein-purifier -- lock --lockfile ../ring.lock.json
-cd ..
-git add ring.lock.json
+nix run github:nix-purifiers/lein-purifier -- lock
 ```
 
-Then build it with a flake that takes Ring as an input that is not a
-flake:
-
 ```nix
+# flake.nix, next to project.clj
 {
   inputs.lein-purifier.url = "github:nix-purifiers/lein-purifier";
   inputs.nixpkgs.follows = "lein-purifier/nixpkgs";
-  inputs.ring = {
-    url = "github:ring-clojure/ring";
-    flake = false;
-  };
 
-  outputs = { nixpkgs, lein-purifier, ring, ... }:
+  outputs = { nixpkgs, lein-purifier, ... }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs {
         inherit system;
         overlays = [ lein-purifier.overlays.default ];
       };
-      project = pkgs.buildLeinProject {
-        src = ring;
-        lockFile = ./ring.lock.json;
-      };
+      project = pkgs.buildLeinProject { src = ./.; };
     in
     {
       packages.${system} = project.packages;
@@ -304,17 +294,21 @@ flake:
 }
 ```
 
+```zsh
+git add flake.nix lein-purifier.lock.json
+git commit -m "Build with lein-purifier"
+nix build .#ring-core
+```
+
 `nix build .#ring-core` builds one subproject, and `nix flake check` runs
 the tests of all of them in the sandbox. Each subproject is a package with
 its jar and POM in `share/java`, and `project.release` holds them all in
 Maven repository layout.
 
-To work on Ring itself, run Leiningen from a shell that has lein-purifier,
-in the checkout with its lockfile in place:
+To work on Ring, run Leiningen from a shell that has lein-purifier, in the
+checkout:
 
 ```zsh
-cd ring
-export LEIN_PURIFIER_LOCKFILE="$(realpath ../ring.lock.json)"
 nix shell github:nix-purifiers/lein-purifier
 lein-purifier prefetch
 lein test
@@ -324,6 +318,13 @@ A subproject finds a sibling it depends on only after `lein install` in
 the sibling's directory, as the Development loop section describes. Ring
 lists `ring-jetty-adapter` before `ring-jakarta-servlet`, which it needs,
 so install `ring-jakarta-servlet` first.
+
+To package Ring without changing its repository, you can instead keep the
+lockfile in your own repository. Lock with
+`lein-purifier lock --lockfile ../ring.lock.json`, take Ring as a flake
+input that is not a flake (`inputs.ring = { url = "github:ring-clojure/ring";
+flake = false; }`), and pass both to the builder:
+`pkgs.buildLeinProject { src = ring; lockFile = ./ring.lock.json; }`.
 
 ## Credits
 
