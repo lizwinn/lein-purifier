@@ -118,7 +118,7 @@ let
 
   dependencies = purifier.tree (
     {
-      pkgs = { inherit fetchurl runCommand; };
+      inherit fetchurl runCommand;
       name = "lein-purifier-repository";
       entries = purifier.entriesFor stdenvNoCC.hostPlatform.system checked;
     }
