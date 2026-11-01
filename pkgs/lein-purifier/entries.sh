@@ -58,7 +58,9 @@ artifactMetadata() {
 # Reads the transfer log TRANSFERS of a lock run, whose lines are the
 # repository URL, the resource name, the local file and the directory
 # Leiningen ran in, separated by tabs, and the local repository M2 the run
-# filled. Appends one JSON entry per line to ARTIFACTS, and the path of
+# filled. A line whose repository is `seeded` names a metadata file that
+# the lock run wrote into M2 from the previous lockfile, so the run keeps
+# the versions it recorded; it becomes an entry as a downloaded one does. Appends one JSON entry per line to ARTIFACTS, and the path of
 # each `file:` repository inside PROJECT, relative to it, to REPOSITORIES.
 #
 # Every logged download becomes an entry: a file with the URL it came
@@ -109,6 +111,10 @@ lockEntries() {
       fi
       ;;
     *)
+      if [ "$repository" = seeded ]; then
+        echo "lein-purifier: $rel was seeded from the lockfile, but it is not repository metadata" >&2
+        return 1
+      fi
       local url="${repository%/}/$resource" mirrors=()
       if [ "${repository%/}/" = "$centralUrl" ] || { [ -n "$centralMirror" ] && [ "${repository%/}/" = "$centralMirror" ]; }; then
         url="$centralUrl$resource"
@@ -141,6 +147,36 @@ lockEntries() {
     echo "lein-purifier: the files above are in the local repository, but no download of them was logged" >&2
     return 1
   fi
+}
+
+# seedMetadata LOCKFILE M2 TRANSFERS [PACKAGE...]
+#
+# Writes the repository metadata entries of LOCKFILE into the local
+# repository M2, and logs each in TRANSFERS as seeded, so that a lock run
+# with :update :never resolves version ranges and SNAPSHOT versions to what
+# LOCKFILE recorded. The metadata of each PACKAGE, given as group/name or
+# as a name whose group is the same, is left out, so those packages
+# resolve anew.
+seedMetadata() {
+  local lockFile=$1 m2=$2 transfers=$3 path directory group artifact package skip
+  shift 3
+  while IFS= read -r path; do
+    directory=$(dirname "$path")
+    # Version-level SNAPSHOT metadata lies in the version directory.
+    if [[ $directory == *-SNAPSHOT ]]; then directory=$(dirname "$directory"); fi
+    artifact=$(basename "$directory")
+    group=$(dirname "$directory" | tr / .)
+    skip=0
+    for package in "$@"; do
+      if [ "$package" = "$group/$artifact" ] || { [ "$package" = "$artifact" ] && [ "$group" = "$artifact" ]; }; then
+        skip=1
+      fi
+    done
+    [ $skip = 0 ] || continue
+    mkdir -p "$m2/$(dirname "$path")"
+    jq -j --arg path "$path" '.artifacts[] | select(.path == $path) | .contents' "$lockFile" >"$m2/$path"
+    printf 'seeded\t%s\t%s\t%s\n' "$path" "$m2/$path" "" >>"$transfers"
+  done < <(jq -r '.artifacts[] | select(has("contents")) | .path' "$lockFile")
 }
 
 # The integrity of a lockfile: the SHA-256, in hex, of every field of it in

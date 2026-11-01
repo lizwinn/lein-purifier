@@ -27,11 +27,16 @@ Usage:
       Runs the build of the project, and of each subproject that lein-sub
       or lein-monolith names, with an empty local Maven repository, and
       records every file Leiningen downloads in lein-purifier.lock.json.
-      Without --force, an up-to-date lockfile is left as it is.
+      Version ranges and SNAPSHOT versions keep what the lockfile
+      recorded. Without --force, an up-to-date lockfile is left as it is.
+  lein-purifier update [PACKAGE...] [--no-uberjar] [--lockfile PATH]
+      Locks again, resolving version ranges and SNAPSHOT versions anew:
+      all of them, or those of each PACKAGE, given as group/name.
   lein-purifier prefetch [--lockfile PATH]
       Fetches every locked file into the Nix store and lays them out as
-      the local repository in .lein-purifier, with GC roots there, so the
-      everyday loop and the editor work with no network.
+      the local repository in .lein-purifier beside the lockfile, with GC
+      roots there, so the everyday loop and the editor work with no
+      network.
   lein-purifier publish REPOSITORY [NAME...] [--lockfile PATH]
       Builds the release of the project with Nix and deploys the jar and
       the POM of each project with `lein deploy` to REPOSITORY, a
@@ -78,14 +83,29 @@ projectRoot() {
   echo "$root"
 }
 
-# The lockfile of the project at $1: the path $2, when given, or else
+# The lockfile of the project at $1: the path $2 from --lockfile, when
+# given, or else the path in LEIN_PURIFIER_LOCKFILE, or else
 # lein-purifier.lock.json at the root.
 lockFilePath() {
   if [ -n "$2" ]; then
     realpath -m "$2"
+  elif [ -n "${LEIN_PURIFIER_LOCKFILE:-}" ]; then
+    realpath -m "$LEIN_PURIFIER_LOCKFILE"
   else
     echo "$1/$lockName"
   fi
+}
+
+# The Leiningen user profile of a lock run, from what it needs: `mirror`
+# when it downloads Maven Central through its mirror (see entries.sh), and
+# `keep` when it keeps the versions the seeded metadata records.
+lockProfile() {
+  local mirror=$1 keep=$2 entries=""
+  if [ "$mirror" = 1 ]; then
+    entries=$(jq -rn --arg url "$centralMirror" '":mirrors {\"central\" {:name \"central\" :url \"\($url)\"}}"')
+  fi
+  if [ "$keep" = 1 ]; then entries="$entries :update :never"; fi
+  echo "{:user {$entries}}"
 }
 
 # The SHA-256, in hex, of project.clj and then profiles.clj of the root and
@@ -157,9 +177,10 @@ flakeExpression() {
     "$LEIN_PURIFIER_FLAKE" "$LEIN_PURIFIER_SYSTEM"
 }
 
-# Makes .lein-purifier/home/.m2/repository at the root $1 the local
-# repository of lockfile $2: links to the locked files in the store, and
-# links to the files of the repositories inside the project. Sets `home`.
+# Makes .lein-purifier/home/.m2/repository, beside lockfile $2, the local
+# repository of that lockfile for the project at the root $1: links to the
+# locked files in the store, and links to the files of the repositories
+# inside the project. Sets `home`.
 #
 # The files are the shared library's tree of the lockfile entries, fetched
 # with the nixpkgs fetcher, which tries the mirrors of an entry when its
@@ -168,7 +189,8 @@ flakeExpression() {
 # when the lockfile changes, so a prefetched project needs no Nix and no
 # network after that.
 prefetchRepository() {
-  local root=$1 lockFile=$2 state="$1/.lein-purifier" stamp
+  local root=$1 lockFile=$2 stamp state
+  state="$(dirname "$lockFile")/.lein-purifier"
   home="$state/home"
   local m2="$home/.m2/repository" rel repository
   mkdir -p "$state"
@@ -231,28 +253,45 @@ groupPath() {
   echo "${1//.//}"
 }
 
+# cmdLock MODE ARGS...
+#
+# MODE `lock` keeps the resolution of an existing lockfile: version ranges
+# and SNAPSHOT versions resolve to what it recorded. MODE `update`
+# resolves them anew, all of them, or those of the packages named in ARGS.
 cmdLock() {
-  local force=0 uberjar=true lockOption=""
+  local mode=$1 force=0 uberjar="" lockOption="" packages=()
+  shift
+  if [ "$mode" = update ]; then force=1; fi
   while [ $# -gt 0 ]; do
     case $1 in
     --force) force=1 ;;
     --no-uberjar) uberjar=false ;;
     --lockfile)
-      [ $# -ge 2 ] || die "lock: --lockfile needs a path"
+      [ $# -ge 2 ] || die "$mode: --lockfile needs a path"
       lockOption=$2
       shift
       ;;
-    *) die "lock: unknown argument $1" ;;
+    -*) die "$mode: unknown argument $1" ;;
+    *)
+      [ "$mode" = update ] || die "lock: unknown argument $1; to resolve a package anew, run lein-purifier update $1"
+      packages+=("$1")
+      ;;
     esac
     shift
   done
 
-  local root lockFile
+  local root lockFile previous=0
   root=$(projectRoot)
   lockFile=$(lockFilePath "$root" "$lockOption")
   if [ $force = 0 ] && lockIsCurrent "$root" "$lockFile"; then
     echo "lein-purifier: $lockFile is up to date"
     return
+  fi
+  # A sound previous lockfile gives the versions to keep, and its choice
+  # about uberjars, unless --no-uberjar says otherwise.
+  if [ -f "$lockFile" ] && (checkLockFile "$lockFile") 2>/dev/null; then previous=1; fi
+  if [ -z "$uberjar" ]; then
+    if [ $previous = 1 ]; then uberjar=$(jq -r .uberjar "$lockFile"); else uberjar=true; fi
   fi
 
   local work
@@ -282,6 +321,17 @@ cmdLock() {
   : >"$transfers"
   versions=$(leinVersion)
   echo "lein-purifier: locking $root"
+
+  # `lock` keeps what the previous lockfile resolved, and `update` with
+  # package names keeps it for the other packages: the recorded metadata is
+  # seeded into the local repository, and :update :never makes Maven
+  # Resolver read it rather than fetch it again.
+  local keep=0
+  if [ $previous = 1 ] && { [ "$mode" = lock ] || [ ${#packages[@]} -gt 0 ]; }; then
+    seedMetadata "$lockFile" "$m2" "$transfers" "${packages[@]}"
+    keep=1
+  fi
+  lockProfile 0 "$keep" >"$work/home/.lein/profiles.clj"
 
   # The root names its subprojects, if it has any. Its plugins, such as
   # lein-sub or lein-monolith, are locked too.
@@ -335,8 +385,7 @@ cmdLock() {
   # the mirror reads. A project that configures :mirrors itself keeps its
   # own, because Leiningen refuses two mirrors of one repository.
   if [ -n "$centralMirror" ] && [ "$projectMirrors" = 0 ]; then
-    jq -rn --arg url "$centralMirror" '"{:user {:mirrors {\"central\" {:name \"central\" :url \"\($url)\"}}}}"' \
-      >"$work/home/.lein/profiles.clj"
+    lockProfile 1 "$keep" >"$work/home/.lein/profiles.clj"
   fi
 
   # The build order: each project after the projects it depends on.
@@ -477,7 +526,7 @@ cmdPrefetch() {
   lockFile=$(lockFilePath "$root" "$lockOption")
   requireCurrentLock "$root" "$lockFile"
   prefetchRepository "$root" "$lockFile"
-  echo "lein-purifier: prefetched $lockFile into $root/.lein-purifier"
+  echo "lein-purifier: prefetched $lockFile into $(dirname "$lockFile")/.lein-purifier"
 }
 
 cmdPublish() {
@@ -498,7 +547,7 @@ cmdPublish() {
   local release
   echo "lein-purifier: building the release with Nix"
   release=$(LEIN_PURIFIER_ROOT="$root" LEIN_PURIFIER_LOCK="$lockFile" nix build --impure --print-out-paths \
-    --out-link "$root/.lein-purifier/release" --expr "$(flakeExpression)
+    --out-link "$(dirname "$lockFile")/.lein-purifier/release" --expr "$(flakeExpression)
       (f.lib.lein-purifier.buildLeinProject {
         inherit pkgs;
         src = /. + builtins.getEnv \"LEIN_PURIFIER_ROOT\";
@@ -552,7 +601,11 @@ fi
 case ${1:-} in
 lock)
   shift
-  cmdLock "$@"
+  cmdLock lock "$@"
+  ;;
+update)
+  shift
+  cmdLock update "$@"
   ;;
 prefetch)
   shift

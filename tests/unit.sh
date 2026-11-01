@@ -141,6 +141,24 @@ if run example/lib/ 2>"$case/errors"; then fail "unexplained: lockEntries accept
 grep -qx '  org/example/stray/1.0/stray-1.0.jar' "$case/errors" || fail "unexplained: $(cat "$case/errors")"
 if grep -q 'example/lib' "$case/errors"; then fail "unexplained: an installed project is listed"; fi
 
+# The metadata of a previous lockfile is seeded into the local repository
+# and logged, except that of each package named for `update`. A seeded
+# file becomes an entry as a downloaded one does.
+newCase seeded
+cat >"$case/previous.json" <<'EOF'
+{"artifacts":[{"path":"org/example/r/maven-metadata-central.xml","contents":"<metadata>r</metadata>\n"},
+              {"path":"s/s/1.0-SNAPSHOT/maven-metadata-clojars.xml","contents":"<metadata>s</metadata>\n"},
+              {"path":"org/example/r/2.9.0/r-2.9.0.pom","url":"https://r/r.pom","mirrors":[],"hash":"sha256-x"}]}
+EOF
+seedMetadata "$case/previous.json" "$m2" "$case/transfers" s/s
+[ "$(cat "$m2/org/example/r/maven-metadata-central.xml")" = '<metadata>r</metadata>' ] || fail "seeded: the metadata of r was not seeded"
+[ ! -e "$m2/s/s/1.0-SNAPSHOT/maven-metadata-clojars.xml" ] || fail "seeded: the metadata of s, named for update, was seeded"
+[ "$(cut -f1,2 "$case/transfers")" = "seeded	org/example/r/maven-metadata-central.xml" ] || fail "seeded: $(cat "$case/transfers")"
+download https://repo1.maven.org/maven2/ org/example/r/2.9.0/r-2.9.0.pom p
+run || fail "seeded: lockEntries failed"
+grep -q '<version>2.9.0</version>' <<<"$(entry org/example/r/maven-metadata-central.xml | jq -r .contents)" ||
+  fail "seeded: $(entry org/example/r/maven-metadata-central.xml)"
+
 # The integrity changes with any field of the lockfile, a content entry
 # included, and not otherwise.
 newCase integrity

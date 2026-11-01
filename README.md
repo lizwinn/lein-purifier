@@ -95,8 +95,22 @@ with the URL it came from. A lock is current while every `project.clj` and
 `profiles.clj` of the build is unchanged and the Leiningen version is the
 same, and `lein-purifier lock` leaves a current lockfile alone. `--force`
 relocks regardless, `--no-uberjar` leaves the uberjars out of the lock and
-the build, and `--lockfile PATH` writes the lockfile elsewhere. A relock of
-an unchanged project gives the same lockfile byte for byte.
+the build, and `--lockfile PATH` (or `LEIN_PURIFIER_LOCKFILE`) names a
+lockfile elsewhere. A relock of an unchanged project gives the same
+lockfile byte for byte.
+
+Leiningen has no lockfile of its own, so the versions that a version range
+or a SNAPSHOT dependency resolves to are recorded only in
+`lein-purifier.lock.json`. `lein-purifier lock` keeps them: it gives the
+lock run the repository metadata the lockfile recorded, and Maven Resolver
+picks the same versions from it. To move them, run
+
+```zsh
+lein-purifier update                        # every version range and SNAPSHOT
+lein-purifier update org.clojure/data.json  # only this package
+```
+
+which resolves them anew against the repositories and relocks.
 
 Maven Central answers many requests from one address with HTTP 429, so the
 lock run downloads its files through Google's mirror of it, unless the

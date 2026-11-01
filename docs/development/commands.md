@@ -43,12 +43,14 @@ and aarch64-linux:
 
 ```zsh
 tests/relock.sh    # conformance-relock: relocking reproduces each lockfile byte for byte
+tests/update.sh    # conformance-update: update moves a pinned version range, and the lock is then current
 tests/rebuild.sh   # conformance-rebuild: nix build --rebuild gives the same output
 tests/offline.sh   # conformance-offline: after prefetch, the loop works with no network
 tests/publish.sh   # publish deploys the jars and POMs of the release
 ```
 
-The relock needs the network, and all four need the Nix daemon.
+The relock and the update need the network, and every script needs the
+Nix daemon.
 
 ## Formatting
 
