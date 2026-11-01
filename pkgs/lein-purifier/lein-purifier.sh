@@ -236,6 +236,26 @@ prefetchRepository() {
   done < <(jq -r '.projectRepositories[]' "$lockFile")
 }
 
+# Says what to do about a failed offline run, from the error output $2 of
+# Leiningen. When the output names a project of this build, such as
+# ring:ring-core in a lein-sub build, the lockfile holds no download of it,
+# because the lock run installed it into the local repository, and a
+# project that depends on it finds it there only after `lein install`.
+# Otherwise a file the lock does not hold, which a task or profile that
+# the lock run did not use may need, calls for a new lock.
+explainFailure() {
+  local lockFile=$1 errors=$2 group name dir hinted=0
+  while IFS=$'\t' read -r group name dir; do
+    if grep -q -F "$group:$name:" "$errors"; then
+      echo "lein-purifier: $group/$name is a project of this build, so $lockFile holds no download of it; run lein install in $dir before the projects that depend on it (lein sub install installs the subprojects in the order :sub lists them)" >&2
+      hinted=1
+    fi
+  done < <(jq -r '.projects[] | [.group, .name, .dir] | @tsv' "$lockFile")
+  if [ $hinted = 0 ] && grep -q -E 'in offline mode|Could not transfer artifact' "$errors"; then
+    echo "lein-purifier: Leiningen needs an artifact that $lockFile does not hold, perhaps for a profile or a task the lock run did not use; run lein-purifier lock --force to lock again" >&2
+  fi
+}
+
 # Runs Leiningen offline on the prefetched local repository in `home`, in
 # the current directory. The Leiningen home directory of the user, with its
 # profiles, stays in effect. A dependency the lock does not hold fails
@@ -249,8 +269,8 @@ runOffline() {
   errors=$(mktemp)
   lein -o "$@" 2> >(tee "$errors" >&2) || status=$?
   wait
-  if [ $status != 0 ] && grep -q 'in offline mode' "$errors"; then
-    echo "lein-purifier: Leiningen needs an artifact that $lockFile does not hold, perhaps for a profile or a task the lock run did not use; run lein-purifier lock --force to lock again" >&2
+  if [ $status != 0 ]; then
+    explainFailure "$lockFile" "$errors"
   fi
   rm -f "$errors"
   return $status

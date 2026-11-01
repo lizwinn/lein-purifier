@@ -52,8 +52,23 @@ expect '{"greeting":"Hello from the in-project repository, sources","snapshot":t
   "$(offline "$cli/lein" run)"
 
 # In a project with subprojects, the application resolves the library
-# once `lein install` has put it into the local repository, as with
-# Leiningen itself.
+# only once `lein install` has put it into the local repository, as with
+# Leiningen itself. Before that, the run fails and says what to do.
+cd "$work/multi-sub/app"
+if offline "$cli/lein" run 2>"$work/errors"; then
+  echo "offline.sh: the application ran before its library was installed" >&2
+  exit 1
+fi
+grep -q 'example/multi-lib is a project of this build' "$work/errors" || {
+  cat "$work/errors" >&2
+  exit 1
+}
+grep -q 'run lein install in lib ' "$work/errors" || {
+  cat "$work/errors" >&2
+  exit 1
+}
+
+# Once the library is installed, the application runs.
 cd "$work/multi-sub/lib"
 offline "$cli/lein" install
 cd "$work/multi-sub/app"

@@ -80,6 +80,20 @@ lein test
 lein uberjar
 ```
 
+In a project with subprojects, which lein-sub or lein-monolith names, a
+subproject finds a sibling that it depends on in the local repository
+only once `lein install` has put it there, as with Leiningen itself. The
+lockfile holds no download of the siblings. A run that needs one fails and
+names the directory to install:
+
+```zsh
+cd ring-core && lein install       # then ring-devel can resolve ring-core
+```
+
+`lein sub install` at the root does the same for every subproject, in the
+order that `:sub` lists them. Install a dependency's directory first when
+`:sub` lists a subproject before a sibling it needs.
+
 When you add or upgrade a dependency in `project.clj`, the next `lein`
 stops and asks you to relock:
 
@@ -156,6 +170,7 @@ package.
 | --- | --- | --- |
 | project.clj or profiles.clj changed, or Leiningen did, after … was made | A dependency, a profile or the Leiningen version changed since the lock | `lein-purifier lock` |
 | Leiningen needs an artifact that … does not hold | A task or profile the lock run did not use needs a file | `lein-purifier lock --force` |
+| … is a project of this build, so … holds no download of it | A subproject needs a sibling that is not installed yet | `lein install` in the directory the message names |
 | … was changed after lein-purifier lock wrote it | The lockfile was edited by hand | `lein-purifier lock --force` |
 | … has merge conflict markers in it, or … is not valid JSON | A merge left the lockfile broken | `lein-purifier lock --force` |
 | … has lock format version … | The lockfile is from another lein-purifier | `lein-purifier lock --force` |
@@ -213,9 +228,35 @@ holds what the platform of the lock run resolved.
 
 ## Real-world projects
 
+**Ring** ([ring-clojure/ring](https://github.com/ring-clojure/ring),
+commit `6238fe0`, version 1.15.6) has five subprojects that lein-sub names.
+`lein-purifier lock` locks it in 42 seconds, to 209 entries, and CI checks
+the following on both architectures, with Ring's lockfile kept outside its
+source in `tests/real/ring`:
+
+- relocking reproduces the lockfile byte for byte;
+- all five subprojects build in the sandbox, and the release holds the jar
+  and POM of each;
+- the test suites of the subprojects pass in the sandbox, among them the
+  191 tests of ring-core and the 7 tests of ring-jetty-adapter.
+
+Trying the everyday loop on a checkout of Ring found one thing: `lein test`
+at the root runs the tests of each subproject, and `ring-devel` needs
+`ring-core`, which is a project of the build and so not a download. The
+run failed with a plain transfer error, and now says to run `lein install`
+in `ring-core`. Ring lists `ring-jetty-adapter` before
+`ring-jakarta-servlet`, which it needs, so `lein sub install` alone does
+not install them in a usable order here either; the fixture `multi-sub`
+tests the same case.
+
+**Compojure** (commit `8a4758d`) was tried too. Its lock run failed in
+Leiningen's `deps` task, and the cause is not known yet, so it is not
+among the checks.
+
 The test fixtures cover each supported source: `hello` (Maven Central,
 Clojars, a plugin, a test profile, an uberjar), `sources` (a version range,
-a SNAPSHOT, a mirror, a repository inside the project), `multi-sub`
+a SNAPSHOT, a mirror, a repository inside the project), `update` (a
+lockfile that pins an older version than its range allows), `multi-sub`
 (lein-sub) and `monolith` (lein-monolith).
 
 ## Credits

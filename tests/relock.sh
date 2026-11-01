@@ -22,4 +22,17 @@ for fixture in "$work"/*/; do
     exit 1
   fi
 done
+# Ring, a real-world project with five subprojects, at its pinned commit:
+# its lockfile is kept outside its source, in tests/real/ring.
+system=$(nix eval --raw --impure --expr builtins.currentSystem)
+ring=$(nix build --no-link --print-out-paths "$root#checks.$system.ring-source")
+cp -r "$ring" "$work/ring-source"
+chmod -R u+w "$work/ring-source"
+(cd "$work/ring-source" && "$cli" lock --force --lockfile "$work/ring.lock.json")
+if ! cmp "$root/tests/real/ring/lein-purifier.lock.json" "$work/ring.lock.json"; then
+  diff <(jq -S . "$root/tests/real/ring/lein-purifier.lock.json") <(jq -S . "$work/ring.lock.json") || true
+  echo "relock.sh: the lock of Ring differs from the committed one (above)" >&2
+  exit 1
+fi
+
 echo "relock.sh: passed"
