@@ -23,7 +23,30 @@ let
     doCheck = true;
   };
 
-  # A copy of the hello lock with one field changed.
+  # Dependencies from a version range, a SNAPSHOT and a repository inside
+  # the project, with Maven Central reached through a mirror that
+  # profiles.clj configures.
+  sources = buildLeinProject { src = ./fixtures/sources; };
+
+  # Subprojects: lein-sub names them in :sub, lein-monolith in its
+  # :project-dirs. In each, the application depends on the library.
+  multi-sub = buildLeinProject { src = ./fixtures/multi-sub; };
+  monolith = buildLeinProject { src = ./fixtures/monolith; };
+
+  # A check that runs a launcher and compares its output with one line.
+  runs =
+    name: package: expected:
+    pkgs.runCommand name { } ''
+      ${pkgs.lib.getExe package} > output
+      if ! grep -qxF ${pkgs.lib.escapeShellArg expected} output; then
+        echo "${name}: expected ${expected}, got:" >&2
+        cat output >&2
+        exit 1
+      fi
+      touch $out
+    '';
+
+  # A copy of the hello lock with some fields changed.
   helloLockWith =
     attrs:
     builtins.toFile "lein-purifier.lock.json" (
@@ -49,12 +72,7 @@ in
   hello = hello.package;
 
   # The launcher runs the uberjar, which holds both dependencies.
-  hello-runs = pkgs.runCommand "hello-runs" { } ''
-    ${hello.package}/bin/hello you > output
-    grep -qx '{"hello":"you"}' output
-    grep -qx '<p>Hello, you</p>' output
-    touch $out
-  '';
+  hello-runs = runs "hello-runs" hello.package ''{"hello":"world"}'';
 
   # The lock names every file of the package before it is built, and each
   # one is in the package.
@@ -65,9 +83,21 @@ in
     touch $out
   '';
 
-  # A lock made from another project definition, or with another
-  # Leiningen, would not hold what the build resolves, so the builder
-  # refuses it at evaluation.
+  sources-runs =
+    runs "sources-runs" sources.package
+      ''{"greeting":"Hello from the in-project repository, sources","snapshot":true}'';
+
+  multi-sub-runs = runs "multi-sub-runs" multi-sub.packages.multi-app "MULTI-SUB!";
+  multi-sub-library = multi-sub.packages.multi-lib;
+
+  monolith-runs =
+    runs "monolith-runs" monolith.packages.mono-tool
+      "mono-tool is built from a monolith";
+  monolith-library = monolith.packages.mono-core;
+
+  # A lock made from another project definition, with another Leiningen
+  # or in another format would not hold what the build resolves, so the
+  # builder refuses it at evaluation.
   stale-lock-refused =
     assert refuses (helloLockWith {
       definitionHash = "0000";
@@ -76,7 +106,7 @@ in
       leinVersion = "0.0.0";
     });
     assert refuses (helloLockWith {
-      version = 0;
+      version = 1;
     });
     pkgs.runCommand "stale-lock-refused" { } "touch $out";
 }

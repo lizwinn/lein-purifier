@@ -1,0 +1,116 @@
+{
+  "version": 2,
+  "leinVersion": "2.12.0",
+  "javaVersion": "21.0.12.1",
+  "definitionHash": "7ee55f4054f442138929304f9214e811533f6fce7924573e5bea266bbf1ea60e",
+  "uberjar": true,
+  "projects": [
+    {
+      "dir": "lib",
+      "group": "example",
+      "name": "multi-lib",
+      "version": "1.0.0",
+      "mainClass": null,
+      "outputs": [
+        "target/multi-lib-1.0.0.jar",
+        "target/multi-lib-1.0.0-standalone.jar"
+      ],
+      "dependsOn": []
+    },
+    {
+      "dir": "app",
+      "group": "example",
+      "name": "multi-app",
+      "version": "1.0.0",
+      "mainClass": "multi.app",
+      "outputs": [
+        "target/multi-app-1.0.0.jar",
+        "target/multi-app-1.0.0-standalone.jar"
+      ],
+      "dependsOn": [
+        "example/multi-lib"
+      ]
+    }
+  ],
+  "projectRepositories": [],
+  "artifacts": [
+    {
+      "path": "lein-sub/lein-sub/0.3.0/lein-sub-0.3.0.jar",
+      "url": "https://repo.clojars.org/lein-sub/lein-sub/0.3.0/lein-sub-0.3.0.jar",
+      "mirrors": [],
+      "hash": "sha256-BKakLNzMeCdTcbIwVEM4ihRxdDvX5MTBtW1MYWbmYZc="
+    },
+    {
+      "path": "lein-sub/lein-sub/0.3.0/lein-sub-0.3.0.pom",
+      "url": "https://repo.clojars.org/lein-sub/lein-sub/0.3.0/lein-sub-0.3.0.pom",
+      "mirrors": [],
+      "hash": "sha256-hRdrJrSQPdHKqk/S6oqUR32tUsRpy+V+8NFGip3NtnU="
+    },
+    {
+      "path": "nrepl/nrepl/1.0.0/nrepl-1.0.0.jar",
+      "url": "https://repo.clojars.org/nrepl/nrepl/1.0.0/nrepl-1.0.0.jar",
+      "mirrors": [],
+      "hash": "sha256-owuXNP8uY582Xw11U7SHcwbypUPPAh4pnRW/HqvWpbs="
+    },
+    {
+      "path": "nrepl/nrepl/1.0.0/nrepl-1.0.0.pom",
+      "url": "https://repo.clojars.org/nrepl/nrepl/1.0.0/nrepl-1.0.0.pom",
+      "mirrors": [],
+      "hash": "sha256-dHN5LZGfjodYUES5nySqLqFVNCBgRI2opHhGvkXz2nI="
+    },
+    {
+      "path": "org/clojure/clojure/1.12.0/clojure-1.12.0.jar",
+      "url": "https://repo1.maven.org/maven2/org/clojure/clojure/1.12.0/clojure-1.12.0.jar",
+      "mirrors": [],
+      "hash": "sha256-xFMzAGRBoFnqn9sTQfxsH0C5IaENzNgmZTEeSKA4R2M="
+    },
+    {
+      "path": "org/clojure/clojure/1.12.0/clojure-1.12.0.pom",
+      "url": "https://repo1.maven.org/maven2/org/clojure/clojure/1.12.0/clojure-1.12.0.pom",
+      "mirrors": [],
+      "hash": "sha256-KfRiqonLl2RXWEGKXwjUwagrc1yW569JgX0WqpuQgVA="
+    },
+    {
+      "path": "org/clojure/core.specs.alpha/0.4.74/core.specs.alpha-0.4.74.jar",
+      "url": "https://repo1.maven.org/maven2/org/clojure/core.specs.alpha/0.4.74/core.specs.alpha-0.4.74.jar",
+      "mirrors": [],
+      "hash": "sha256-63OsCM9JuoQMiLpnvu8RM2ylVDM9lAiAjXiUbg/rnds="
+    },
+    {
+      "path": "org/clojure/core.specs.alpha/0.4.74/core.specs.alpha-0.4.74.pom",
+      "url": "https://repo1.maven.org/maven2/org/clojure/core.specs.alpha/0.4.74/core.specs.alpha-0.4.74.pom",
+      "mirrors": [],
+      "hash": "sha256-M0EOuKpz1S2Vez3G4KZfOZisBiPL2BPZDDPm5onEJCk="
+    },
+    {
+      "path": "org/clojure/pom.contrib/1.2.0/pom.contrib-1.2.0.pom",
+      "url": "https://repo1.maven.org/maven2/org/clojure/pom.contrib/1.2.0/pom.contrib-1.2.0.pom",
+      "mirrors": [],
+      "hash": "sha256-CRbXpBVYuVAKQnyIb6KYJ6zlJZIGvjrTPmTilvwaYRE="
+    },
+    {
+      "path": "org/clojure/spec.alpha/0.5.238/spec.alpha-0.5.238.jar",
+      "url": "https://repo1.maven.org/maven2/org/clojure/spec.alpha/0.5.238/spec.alpha-0.5.238.jar",
+      "mirrors": [],
+      "hash": "sha256-lM2ZtupjlkHzevSGCmQ7btOZ7lqL5dcXz/C2Y8jXUHc="
+    },
+    {
+      "path": "org/clojure/spec.alpha/0.5.238/spec.alpha-0.5.238.pom",
+      "url": "https://repo1.maven.org/maven2/org/clojure/spec.alpha/0.5.238/spec.alpha-0.5.238.pom",
+      "mirrors": [],
+      "hash": "sha256-PLp+DcwIXEzpLd3/6iJhJP+sF4vnm9A3m1suMKlpy+o="
+    },
+    {
+      "path": "org/nrepl/incomplete/0.1.0/incomplete-0.1.0.jar",
+      "url": "https://repo.clojars.org/org/nrepl/incomplete/0.1.0/incomplete-0.1.0.jar",
+      "mirrors": [],
+      "hash": "sha256-beLz9UBjtMi6E63xC2IdP4muwTFwM2SPLSSzlRB3ouM="
+    },
+    {
+      "path": "org/nrepl/incomplete/0.1.0/incomplete-0.1.0.pom",
+      "url": "https://repo.clojars.org/org/nrepl/incomplete/0.1.0/incomplete-0.1.0.pom",
+      "mirrors": [],
+      "hash": "sha256-1LvcRQ5FaR2KfmrAGBqOr5amU4spUZZWo/zO6JVNY0s="
+    }
+  ]
+}

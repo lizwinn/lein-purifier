@@ -38,6 +38,6 @@ lock
 // {
   inherit storeName;
 
-  # The fetch name of an artifact: its file name, made a valid store name.
-  artifactName = artifact: storeName (builtins.baseNameOf artifact.path);
+  # The store name of an entry: its file name, made a valid store name.
+  artifactName = entry: storeName (builtins.baseNameOf entry.path);
 }

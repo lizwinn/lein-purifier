@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 #
-# The local Maven repository of a lockfile: every locked file at its path
-# in the repository, as a link into the store. It is a package for
+# The local Maven repository of a lockfile: every entry at its path in the
+# repository, as a link into the store. It is a package for
 # callPackage, with the lockfile among its arguments, and it is the
 # `dependencies` of buildLeinProject.
 #
