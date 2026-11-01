@@ -4,13 +4,14 @@
 # lockfile `lein-purifier lock` writes at the project root.
 #
 # The file is a package for callPackage. The first argument set is what it
-# takes from the package set by name, and the result is the builder. The
-# flake's `overlays.default` adds the builder to the package set as
-# `buildLeinProject`, so a package written for callPackage takes it like
-# any other builder, and `buildLeinProject.override` replaces what it
-# takes:
+# takes by name, and the result is the builder. The flake's
+# `overlays.default` adds the scope `pkgs.lein-purifier`, made with
+# lib.makeScope, and the builder is a package in that scope. A package
+# written for callPackage takes the scope by name,
+# `buildLeinProject.override` replaces what the builder takes, and
+# `lein-purifier.overrideScope` replaces what the scope shares:
 #
-#   { buildLeinProject }: (buildLeinProject { src = ./.; }).packages.hello
+#   { lein-purifier }: (lein-purifier.buildLeinProject { src = ./.; }).packages.hello
 #
 # The builder takes `src`, `lockFile`, `fetchers`, `jdk` and `srcFilter`.
 # Its result has, by the purifier contract,

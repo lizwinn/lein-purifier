@@ -15,14 +15,14 @@ Lock the project from its root, and commit the lockfile:
 nix run github:nix-purifiers/lein-purifier -- lock
 ```
 
-The flake's `overlays.default` adds `buildLeinProject` to a package set,
-and a package written for `callPackage` takes it by name, like any other
-builder:
+The flake's `overlays.default` adds one attribute to a package set: the
+scope `lein-purifier`, which holds `buildLeinProject` and the command. A
+package written for `callPackage` takes the scope by name:
 
 ```nix
 # package.nix
-{ buildLeinProject }:
-(buildLeinProject { src = ./.; }).packages.hello
+{ lein-purifier }:
+(lein-purifier.buildLeinProject { src = ./.; }).packages.hello
 ```
 
 ```nix
@@ -43,7 +43,7 @@ builder:
     in
     {
       packages.${system}.default = pkgs.hello;
-      checks.${system}.tests = (pkgs.buildLeinProject { src = ./.; }).tests;
+      checks.${system}.tests = (pkgs.lein-purifier.buildLeinProject { src = ./.; }).tests;
     };
 }
 ```
@@ -80,9 +80,10 @@ The builder takes `src` and these arguments:
   was made with;
 - `srcFilter`.
 
-`buildLeinProject` takes what it needs from the package set by name
-(`stdenvNoCC`, `javaPackages`, `leiningen` and the others), so
-`buildLeinProject.override` or an overlay replaces any of them. We
+`buildLeinProject` takes what it needs by name (`stdenvNoCC`,
+`javaPackages`, `leiningen` and the others), so
+`lein-purifier.buildLeinProject.override` replaces any of them, and
+`lein-purifier.overrideScope` replaces what the scope shares. We
 recommend following the nixpkgs input of lein-purifier, as above: the
 builder uses the Leiningen of the package set, and it refuses a lockfile
 made with another Leiningen version, because each version adds its own
@@ -285,7 +286,7 @@ nix run github:nix-purifiers/lein-purifier -- lock
         inherit system;
         overlays = [ lein-purifier.overlays.default ];
       };
-      project = pkgs.buildLeinProject { src = ./.; };
+      project = pkgs.lein-purifier.buildLeinProject { src = ./.; };
     in
     {
       packages.${system} = project.packages;
@@ -324,7 +325,7 @@ lockfile in your own repository. Lock with
 `lein-purifier lock --lockfile ../ring.lock.json`, take Ring as a flake
 input that is not a flake (`inputs.ring = { url = "github:ring-clojure/ring";
 flake = false; }`), and pass both to the builder:
-`pkgs.buildLeinProject { src = ring; lockFile = ./ring.lock.json; }`.
+`pkgs.lein-purifier.buildLeinProject { src = ring; lockFile = ./ring.lock.json; }`.
 
 ## Credits
 

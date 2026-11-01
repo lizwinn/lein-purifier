@@ -9,7 +9,7 @@
   pkgs,
   # The flake's library, with `lein-purifier` and the shared `purifier`.
   lib,
-  # The flake's default package overlay, which adds buildLeinProject.
+  # The flake's default package overlay, which adds the scope lein-purifier.
   overlay,
   # The lein-purifier command.
   cli,
@@ -18,7 +18,7 @@ let
   # Every fixture builds the way a consumer's package does: through the
   # builder that the overlay adds to the package set.
   withOverlay = pkgs.extend overlay;
-  build = withOverlay.buildLeinProject;
+  build = withOverlay.lein-purifier.buildLeinProject;
 
   # An application with dependencies from Maven Central and Clojars, a
   # plugin, a test profile and an uberjar with a main class.
@@ -257,7 +257,7 @@ in
       consumerPkgs = withOverlay.extend (
         final: prev: {
           hello-from-lein = final.callPackage (
-            { buildLeinProject }: (buildLeinProject { src = ./fixtures/hello; }).packages.hello
+            { lein-purifier }: (lein-purifier.buildLeinProject { src = ./fixtures/hello; }).packages.hello
           ) { };
         }
       );
@@ -269,7 +269,7 @@ in
   # and fails evaluation.
   builder-override =
     let
-      overridden = withOverlay.buildLeinProject.override {
+      overridden = withOverlay.lein-purifier.buildLeinProject.override {
         javaPackages = {
           compiler = { };
         };
@@ -277,6 +277,17 @@ in
     in
     assert !(builtins.tryEval (overridden { src = ./fixtures/hello; }).packages.hello.drvPath).success;
     pkgs.runCommand "builder-override" { } "touch $out";
+
+  # lein-purifier.overrideScope replaces what the scope shares: a member
+  # that the override adds is in the new scope, and the builder in it is
+  # the one of the new scope.
+  scope-override =
+    let
+      scoped = withOverlay.lein-purifier.overrideScope (self: super: { marker = "overridden"; });
+    in
+    assert scoped.marker == "overridden" && scoped ? buildLeinProject && scoped ? cli;
+    runs "scope-override" (scoped.buildLeinProject { src = ./fixtures/hello; }).packages.hello
+      ''{"hello":"world"}'';
 
   # A project whose source holds no lockfile builds from a lockfile kept
   # outside it.

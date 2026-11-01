@@ -577,7 +577,7 @@ cmdPublish() {
   echo "lein-purifier: building the release with Nix"
   release=$(LEIN_PURIFIER_ROOT="$root" LEIN_PURIFIER_LOCK="$lockFile" nix build --impure --print-out-paths \
     --out-link "$(dirname "$lockFile")/.lein-purifier/release" --expr "$(flakeExpression)
-      (pkgs.buildLeinProject {
+      (pkgs.lein-purifier.buildLeinProject {
         src = /. + builtins.getEnv \"LEIN_PURIFIER_ROOT\";
         lockFile = /. + builtins.getEnv \"LEIN_PURIFIER_LOCK\";
       }).release")
