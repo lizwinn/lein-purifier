@@ -4,8 +4,8 @@
 # builtins.fromJSON reads: the SHA-256, in hex, of every field of it in a
 # fixed text form. The lockIntegrity function of the lein-purifier command
 # (pkgs/lein-purifier/entries.sh) writes the same text, and the lockfile
-# stores its hash as `integrity`, so lock.nix refuses a lockfile edited by
-# hand.
+# stores its hash as `integrity`, so lock-problem.nix reports a lockfile
+# edited by hand.
 lock:
 let
   join = separator: list: builtins.concatStringsSep separator list;

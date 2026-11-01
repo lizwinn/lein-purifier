@@ -175,13 +175,14 @@ prefetchRepository() {
   stamp=$(sha256sum <"$lockFile" | cut -d' ' -f1)
   if [ "$(cat "$state/stamp" 2>/dev/null || true)" != "$stamp" ] || [ ! -e "$state/repository" ]; then
     echo "lein-purifier: fetching the locked files of $lockFile" >&2
-    LEIN_PURIFIER_LOCK="$lockFile" nix build --impure --out-link "$state/repository" --expr "$(flakeExpression)
+    LEIN_PURIFIER_ROOT="$root" LEIN_PURIFIER_LOCK="$lockFile" nix build --impure --out-link "$state/repository" --expr "$(flakeExpression)
       f.lib.purifier.tree {
         inherit pkgs;
         name = \"lein-purifier-repository\";
-        entries = (import \"$LEIN_PURIFIER_FLAKE/nix/lib/lock.nix\" {
+        entries = f.lib.purifier.entriesFor \"$LEIN_PURIFIER_SYSTEM\" (f.lib.purifier.checkLock (f.lib.lein-purifier.readLock {
+          src = /. + builtins.getEnv \"LEIN_PURIFIER_ROOT\";
           lockFile = /. + builtins.getEnv \"LEIN_PURIFIER_LOCK\";
-        }).artifacts;
+        }));
       }"
     # This script lies in bin/ of its package, whose closure holds
     # Leiningen and the JDK.

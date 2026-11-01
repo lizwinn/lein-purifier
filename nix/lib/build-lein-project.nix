@@ -17,9 +17,9 @@
 #                    sandbox
 #   release          what `lein-purifier publish` deploys: the jar and the
 #                    POM of every project, in Maven repository layout
-#   fetches          the shared library's entries of the lockfile
+#   fetches          the entries of the lock in memory (readLock)
 #
-# and also `lock`, the lockfile as lock.nix reads it, `dependencies`, the
+# and also `lock`, the lockfile as builtins.fromJSON reads it, `dependencies`, the
 # local Maven repository of every entry, and `jdk`.
 { lib }:
 {
@@ -41,18 +41,21 @@
   srcFilter ? null,
 }:
 let
-  lock = import ./lock.nix { inherit lockFile; };
-
-  # A lock that does not fit the project stops the build before it starts.
-  problem = import ./project-problem.nix {
-    inherit
-      lib
-      src
-      lockFile
-      lock
-      ;
-    leinVersion = leiningen.version;
-  };
+  # The lock in memory (read-lock.nix). Each Leiningen version adds its own
+  # nREPL dependencies to every project, so a lock made with another
+  # Leiningen does not hold them, which is a problem only the builder,
+  # with its package set, can find. checkLock stops the build before it
+  # starts when there is any problem.
+  inMemory = import ./read-lock.nix { inherit lib; } { inherit src lockFile; };
+  # The lockfile itself, for what only lein-purifier needs: the Leiningen
+  # and Java versions, the projects in build order and the repositories
+  # inside the project. It is read once readLock found it sound.
+  raw = builtins.fromJSON (builtins.readFile lockFile);
+  leinProblem =
+    lib.optional (inMemory.problems == [ ] && raw.leinVersion != leiningen.version)
+      "lein-purifier: ${toString lockFile} was made with Leiningen ${raw.leinVersion}, and this nixpkgs has Leiningen ${leiningen.version}; run `lein-purifier lock` with the lein-purifier of this nixpkgs, or use the nixpkgs input of lein-purifier.";
+  checked = lib.purifier.checkLock (inMemory // { problems = inMemory.problems ++ leinProblem; });
+  lock = builtins.seq checked raw;
 
   defaultSrcFilter =
     path: type:
@@ -97,7 +100,7 @@ let
     {
       inherit pkgs;
       name = "lein-purifier-repository";
-      entries = lock.artifacts;
+      entries = lib.purifier.entriesFor pkgs.stdenv.hostPlatform.system checked;
     }
     // fetchers
   );
@@ -299,7 +302,6 @@ let
     ) lock.projects
   );
 in
-assert problem == null || throw problem;
 {
   inherit
     lock
@@ -308,6 +310,6 @@ assert problem == null || throw problem;
     tests
     release
     ;
-  fetches = lock.artifacts;
+  fetches = checked.entries;
   jdk = jdk';
 }

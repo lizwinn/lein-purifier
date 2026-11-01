@@ -51,6 +51,13 @@ Build it with the builder of the flake's library:
 - `fetches`: the entries of the lockfile, for SBOM, license and
   vulnerability tools.
 
+`lein-purifier.lib.lein-purifier.readLock { src, lockFile ? ... }` reads
+the lockfile into the shape every purifier shares: `purifier`, the
+download `entries`, the `outputs` of each project (its directory, group,
+version, main class, jars and the projects of the build it depends on)
+and the `problems` that stop a build, each naming the command to run. The
+builder reads the lockfile through it.
+
 The builder also takes `fetchers` (passed to the shared library's
 `fetchEntry`, such as a `fetchurl` with credentials or a company mirror),
 `lockFile` (a lockfile outside `src`, for a project you package but do not

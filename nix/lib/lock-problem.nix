@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: MIT
 #
 # Why a lein-purifier lockfile cannot be used, as a message that names the
-# command that fixes it, or null when it can be used. lock.nix throws the
-# message, and the conformance checks read it.
+# command that fixes it, or null when it can be used. readLock reports the
+# message among its `problems`.
 #
 # A lockfile that is not JSON at all fails in builtins.fromJSON, which
 # Nix reports as a syntax error. The usual cause, a merge conflict, is

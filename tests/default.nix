@@ -44,10 +44,11 @@ let
       touch $out
     '';
 
-  # A check that every message is a refusal naming the command to run.
+  # A check that there are messages, and that each is a refusal naming the
+  # command to run.
   namesCommand =
     name: messages:
-    assert lib.all (message: message != null && lib.hasInfix "lein-purifier lock" message) messages;
+    assert messages != [ ] && lib.all (lib.hasInfix "lein-purifier lock") messages;
     pkgs.runCommand name { } "touch $out";
 
   helloLockFile = ./fixtures/hello/lein-purifier.lock.json;
@@ -67,16 +68,14 @@ let
     in
     writeLock (lock // { integrity = import ../nix/lib/integrity.nix lock; });
 
-  lockProblem = lockFile: import ../nix/lib/lock-problem.nix { inherit lockFile; };
-  projectProblem =
+  # The problems of the lock in memory of the hello project, with this
+  # lockfile.
+  problemsOf =
     lockFile:
-    import ../nix/lib/project-problem.nix {
-      inherit (pkgs) lib;
-      inherit lockFile;
+    (lib.lein-purifier.readLock {
       src = ./fixtures/hello;
-      lock = builtins.fromJSON (builtins.readFile lockFile);
-      leinVersion = pkgs.leiningen.version;
-    };
+      inherit lockFile;
+    }).problems;
 
   # Whether the builder refuses the hello project with this lockfile when
   # it is evaluated.
@@ -154,17 +153,15 @@ in
   monolith-release = monolith.release;
 
   # A lockfile older than the project fails, naming the command to run:
-  # one made from another project definition or with another Leiningen.
+  # one made from another project definition, which readLock reports, or
+  # with another Leiningen, which the builder reports.
   conformance-stale =
     let
       stale = helloLockRewritten { definitionHash = "0000"; };
       otherLein = helloLockRewritten { leinVersion = "0.0.0"; };
     in
     assert refuses stale && refuses otherLein;
-    namesCommand "conformance-stale" [
-      (projectProblem stale)
-      (projectProblem otherLein)
-    ];
+    namesCommand "conformance-stale" (problemsOf stale);
 
   # A lockfile with a changed hash fails, naming the command to run.
   conformance-tampered =
@@ -176,7 +173,7 @@ in
       };
     in
     assert refuses tampered;
-    namesCommand "conformance-tampered" [ (lockProblem tampered) ];
+    namesCommand "conformance-tampered" (problemsOf tampered);
 
   # A lockfile without a needed entry fails, naming the command to run:
   # an edited one at evaluation, and one that is otherwise sound when
@@ -190,7 +187,7 @@ in
             lockFile = helloLockRewritten withoutHiccupJar;
           }).packages.hello;
     in
-    assert (lockProblem (helloLockWith withoutHiccupJar)) != null;
+    assert problemsOf (helloLockWith withoutHiccupJar) != [ ];
     pkgs.runCommand "conformance-missing" { } ''
       grep -q 'in offline mode' ${failure}/testBuildFailure.log
       grep -q 'run lein-purifier lock --force' ${failure}/testBuildFailure.log
@@ -213,11 +210,9 @@ in
       otherFormat = helloLockRewritten { version = 1; };
     in
     assert refuses conflicted && refuses notALock && refuses otherFormat;
-    namesCommand "conformance-malformed" [
-      (lockProblem conflicted)
-      (lockProblem notALock)
-      (lockProblem otherFormat)
-    ];
+    namesCommand "conformance-malformed" (
+      problemsOf conflicted ++ problemsOf notALock ++ problemsOf otherFormat
+    );
 
   # A project whose source holds no lockfile builds from a lockfile kept
   # outside it.
