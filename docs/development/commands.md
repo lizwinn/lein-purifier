@@ -6,16 +6,23 @@ All commands run from the repository root.
 
 ```zsh
 nix flake check
-nix flake check --all-systems --no-build
 ```
 
-The checks build the fixtures under `tests/fixtures` in the Nix sandbox
-from their committed lockfiles and run their launchers, check that the
-builder refuses a lockfile made from another project definition, with
-another Leiningen or in another format, build the `lein-purifier` command
-(which runs shellcheck), and check formatting. The only network access is
-the fixed-output fetch of each locked file. The second command evaluates
-the checks for every system without building them.
+The flake checks build the fixtures under `tests/fixtures` in the Nix
+sandbox from their committed lockfiles, run their launchers and tests,
+run the unit tests of the lock run's parsing (`tests/unit.sh`), build the
+`lein-purifier` command (which runs shellcheck), check formatting, and run
+these conformance checks of the purifier contract:
+
+- `conformance-stale`: a lockfile made from another project definition or
+  with another Leiningen is refused, naming the command to run.
+- `conformance-tampered`: a lockfile with a changed hash is refused.
+- `conformance-missing`: a lockfile without a needed entry is refused, or,
+  when it is otherwise sound, the build fails offline and says to relock.
+- `conformance-malformed`: a lockfile with merge conflict markers, one that
+  is not a lockfile and one of another format are refused.
+- `conformance-external`: a fixture builds from a lockfile outside its
+  source.
 
 The fixtures cover these cases:
 
@@ -28,20 +35,20 @@ The fixtures cover these cases:
 - `monolith`: lein-monolith subprojects, one of which inherits from the
   metaproject.
 
-## Tests outside the sandbox
+## Checks outside the sandbox
+
+The conformance checks that need Nix or the network outside the sandbox
+are scripts, and CI runs each as a job of the same name, on x86_64-linux
+and aarch64-linux:
 
 ```zsh
-tests/lock.sh
-tests/interactive.sh
-tests/deploy.sh
+tests/relock.sh    # conformance-relock: relocking reproduces each lockfile byte for byte
+tests/rebuild.sh   # conformance-rebuild: nix build --rebuild gives the same output
+tests/offline.sh   # conformance-offline: after prefetch, the loop works with no network
+tests/publish.sh   # publish deploys the jars and POMs of the release
 ```
 
-`tests/lock.sh` relocks a copy of each fixture and compares it with the
-committed lockfile. `tests/interactive.sh` runs `lein-purifier lein` on
-copies of the fixtures. `tests/deploy.sh` deploys the hello fixture to a
-repository in a temporary directory and compares the deployed jar with
-the one Nix built. The lock test needs the network, and all three need
-the Nix daemon. CI runs them after the checks.
+The relock needs the network, and all four need the Nix daemon.
 
 ## Formatting
 
@@ -71,4 +78,5 @@ LEIN_JVM_OPTS='-Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxyi
 
 ## Debugging the command
 
-`LEIN_PURIFIER_TRACE=1` makes `lein-purifier` print each command it runs.
+`LEIN_PURIFIER_TRACE=1` makes `lein-purifier` and its `lein` print each
+command they run.
