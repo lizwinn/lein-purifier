@@ -15,15 +15,28 @@ Lock the project from its root, and commit the lockfile:
 nix run github:nix-purifiers/lein-purifier -- lock
 ```
 
-The flake's `overlays.default` adds one attribute to a package set: the
-scope `lein-purifier`, which holds `buildLeinProject` and the command. A
-package written for `callPackage` takes the scope by name:
+Then build the project from its directory, with no Nix file added to the
+project. The expression names the package `hello`, which is the name of the
+project in `project.clj`:
 
-```nix
-# package.nix
-{ lein-purifier }:
-(lein-purifier.buildLeinProject { src = ./.; }).packages.hello
+```zsh
+nix build --impure --expr '
+  let
+    purifier = builtins.getFlake "github:nix-purifiers/lein-purifier";
+    pkgs = import purifier.inputs.nixpkgs {
+      system = builtins.currentSystem;
+      overlays = [ purifier.overlays.default ];
+    };
+  in
+  (pkgs.lein-purifier.buildLeinProject { src = ./.; }).packages.hello'
 ```
+
+The flake's `overlays.default` adds one attribute to a package set: the
+scope `lein-purifier`, which holds `buildLeinProject` and the command.
+
+A project whose authors want a flake can add one that calls the builder
+directly. It can live in the project's repository or in another one, and
+it gives `nix build` and `nix flake check`:
 
 ```nix
 {
@@ -35,20 +48,18 @@ package written for `callPackage` takes the scope by name:
       system = "x86_64-linux";
       pkgs = import nixpkgs {
         inherit system;
-        overlays = [
-          lein-purifier.overlays.default
-          (final: prev: { hello = final.callPackage ./package.nix { }; })
-        ];
+        overlays = [ lein-purifier.overlays.default ];
       };
+      project = pkgs.lein-purifier.buildLeinProject { src = ./.; };
     in
     {
-      packages.${system}.default = pkgs.hello;
-      checks.${system}.tests = (pkgs.lein-purifier.buildLeinProject { src = ./.; }).tests;
+      packages.${system}.default = project.packages.hello;
+      checks.${system}.tests = project.tests;
     };
 }
 ```
 
-`nix build` then builds the project. The builder's result has:
+The builder's result has:
 
 - `packages.<name>`: a package for each project, named after it, with the
   jar, the uberjar and the POM in `share/java`, and a launcher in `bin` for
@@ -273,38 +284,22 @@ cd ring
 nix run github:nix-purifiers/lein-purifier -- lock
 ```
 
-```nix
-# flake.nix, next to project.clj
-{
-  inputs.lein-purifier.url = "github:nix-purifiers/lein-purifier";
-  inputs.nixpkgs.follows = "lein-purifier/nixpkgs";
-
-  outputs = { nixpkgs, lein-purifier, ... }:
-    let
-      system = "x86_64-linux";
-      pkgs = import nixpkgs {
-        inherit system;
-        overlays = [ lein-purifier.overlays.default ];
-      };
-      project = pkgs.lein-purifier.buildLeinProject { src = ./.; };
-    in
-    {
-      packages.${system} = project.packages;
-      checks.${system}.tests = project.tests;
-    };
-}
-```
-
 ```zsh
-git add flake.nix lein-purifier.lock.json
-git commit -m "Build with lein-purifier"
-nix build .#ring-core
+nix build --impure --expr '
+  let
+    purifier = builtins.getFlake "github:nix-purifiers/lein-purifier";
+    pkgs = import purifier.inputs.nixpkgs {
+      system = builtins.currentSystem;
+      overlays = [ purifier.overlays.default ];
+    };
+  in
+  (pkgs.lein-purifier.buildLeinProject { src = ./.; }).packages.ring-core'
 ```
 
-`nix build .#ring-core` builds one subproject, and `nix flake check` runs
-the tests of all of them in the sandbox. Each subproject is a package with
-its jar and POM in `share/java`, and `project.release` holds them all in
-Maven repository layout.
+This builds one subproject, `ring-core`. Each subproject is a package with
+its jar and POM in `share/java`, and the `release` attribute of the
+builder's result holds them all in Maven repository layout. The `tests`
+attribute runs the tests of all of them in the sandbox.
 
 To work on Ring, run Leiningen from a shell that has lein-purifier, in the
 checkout:
@@ -320,11 +315,12 @@ the sibling's directory, as the Development loop section describes. Ring
 lists `ring-jetty-adapter` before `ring-jakarta-servlet`, which it needs,
 so install `ring-jakarta-servlet` first.
 
-To package Ring without changing its repository, you can instead keep the
-lockfile in your own repository. Lock with
+To package Ring from another repository without changing Ring, keep the
+lockfile in that repository. Lock with
 `lein-purifier lock --lockfile ../ring.lock.json`, take Ring as a flake
 input that is not a flake (`inputs.ring = { url = "github:ring-clojure/ring";
-flake = false; }`), and pass both to the builder:
+flake = false; }`), and pass both to the builder in that repository's
+flake:
 `pkgs.lein-purifier.buildLeinProject { src = ring; lockFile = ./ring.lock.json; }`.
 
 ## Credits
