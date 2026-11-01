@@ -196,7 +196,7 @@ lockIntegrity() {
     jq -r '
       "version\t\(.version)",
       "leinVersion\t\(.leinVersion)",
-      "javaVersion\t\(.javaVersion)",
+      "javaMajor\t\(.javaMajor)",
       "definitionHash\t\(.definitionHash)",
       "uberjar\t\(.uberjar)",
       (.projects[] | "project\t\(.dir)\t\(.group)\t\(.name)\t\(.version)\t\(.mainClass // "")\t\(.outputs | join(","))\t\(.dependsOn | join(","))"),

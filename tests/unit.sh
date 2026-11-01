@@ -165,7 +165,7 @@ grep -q '<version>2.9.0</version>' <<<"$(entry org/example/r/maven-metadata-cent
 # included, and not otherwise.
 newCase integrity
 cat >"$case/lock.json" <<'EOF'
-{"version":2,"leinVersion":"2.12.0","javaVersion":"21","definitionHash":"d","uberjar":true,
+{"version":2,"leinVersion":"2.12.0","javaMajor":"21","definitionHash":"d","uberjar":true,
  "projects":[{"dir":".","group":"g","name":"n","version":"1","mainClass":null,"outputs":["target/n-1.jar"],"dependsOn":[]}],
  "projectRepositories":[],
  "artifacts":[{"path":"a/a.jar","url":"https://r/a/a.jar","mirrors":[],"hash":"sha256-x"},

@@ -86,10 +86,10 @@ let
     filter = if srcFilter != null then srcFilter else defaultSrcFilter;
   };
 
-  javaMajor = builtins.head (lib.splitString "." lock.javaVersion);
+  javaMajor = lock.javaMajor;
   defaultJdk =
     pkgs.javaPackages.compiler."openjdk${javaMajor}".headless
-      or (throw "lein-purifier: nixpkgs has no openjdk${javaMajor} for the Java ${lock.javaVersion} the lock was made with; pass `jdk`.");
+      or (throw "lein-purifier: nixpkgs has no openjdk${javaMajor}, the JDK major version the lock was made with; pass `jdk`.");
   jdk' = if jdk != null then jdk else defaultJdk;
 
   # The nixpkgs leiningen wrapper exports the JAVA_CMD it was built with,

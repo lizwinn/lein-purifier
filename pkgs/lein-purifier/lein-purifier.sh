@@ -148,6 +148,15 @@ checkLockFile() {
   fi
 }
 
+# The major version of the Java version $1, such as 21 for 21.0.12.1. The
+# lockfile records only this, so a nixpkgs update that moves the patch
+# level of the JDK leaves the lockfile as it is. The JDK is the one in the
+# closure of the lein-purifier package, and lein ignores JAVA_HOME and
+# JAVA_CMD, so a relock on a machine with its own JDK records the same.
+javaMajor() {
+  echo "${1%%.*}"
+}
+
 # Whether the lockfile was made from this project definition, by this
 # lock format and with this Leiningen, and is unchanged since.
 lockIsCurrent() {
@@ -479,7 +488,7 @@ cmdLock() {
   jq -n \
     --argjson version "$LEIN_PURIFIER_FORMAT" \
     --arg leinVersion "${versions%% *}" \
-    --arg javaVersion "${versions#* }" \
+    --arg javaMajor "$(javaMajor "${versions#* }")" \
     --arg definitionHash "$(definitionHash "$root" "${ordered[@]}")" \
     --argjson uberjar "$uberjar" \
     --argjson projectRepositories "$(LC_ALL=C sort -u "$repositories" | jq -R . | jq -s .)" \
@@ -488,7 +497,7 @@ cmdLock() {
     '{
       version: $version,
       leinVersion: $leinVersion,
-      javaVersion: $javaVersion,
+      javaMajor: $javaMajor,
       definitionHash: $definitionHash,
       uberjar: $uberjar,
       projects: $projects,

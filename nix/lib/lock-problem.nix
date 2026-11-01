@@ -18,7 +18,7 @@ let
   fields = [
     "version"
     "leinVersion"
-    "javaVersion"
+    "javaMajor"
     "definitionHash"
     "uberjar"
     "projects"

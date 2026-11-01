@@ -97,7 +97,10 @@ same, and `lein-purifier lock` leaves a current lockfile alone. `--force`
 relocks regardless, `--no-uberjar` leaves the uberjars out of the lock and
 the build, and `--lockfile PATH` (or `LEIN_PURIFIER_LOCKFILE`) names a
 lockfile elsewhere. A relock of an unchanged project gives the same
-lockfile byte for byte.
+lockfile byte for byte. The lock run uses the Leiningen and the JDK of the
+lein-purifier package, and ignores `JAVA_HOME`, so a machine with a JDK of
+its own, such as a CI runner, locks the same. The lockfile records the JDK
+major version only, and the builder runs on nixpkgs' JDK of that version.
 
 Leiningen has no lockfile of its own, so the versions that a version range
 or a SNAPSHOT dependency resolves to are recorded only in

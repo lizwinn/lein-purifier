@@ -1,7 +1,7 @@
 {
   "version": 2,
   "leinVersion": "2.12.0",
-  "javaVersion": "21.0.12.1",
+  "javaMajor": "21",
   "definitionHash": "7ee55f4054f442138929304f9214e811533f6fce7924573e5bea266bbf1ea60e",
   "uberjar": true,
   "projects": [
@@ -127,5 +127,5 @@
       "hash": "sha256-1LvcRQ5FaR2KfmrAGBqOr5amU4spUZZWo/zO6JVNY0s="
     }
   ],
-  "integrity": "7cc81304685a5268a1d887b7b607c4b29de4f00aff1b4044eee176ef6362c99e"
+  "integrity": "83e7c0862caed9460a77e4fb09c8a54a16ac325e029ff91ae545888484563ca3"
 }

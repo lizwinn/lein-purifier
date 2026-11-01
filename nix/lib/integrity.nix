@@ -15,7 +15,7 @@ builtins.hashString "sha256" (
     [
       "version\t${toString lock.version}\n"
       "leinVersion\t${lock.leinVersion}\n"
-      "javaVersion\t${lock.javaVersion}\n"
+      "javaMajor\t${lock.javaMajor}\n"
       "definitionHash\t${lock.definitionHash}\n"
       "uberjar\t${if lock.uberjar then "true" else "false"}\n"
     ]
