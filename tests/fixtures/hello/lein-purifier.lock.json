@@ -12,8 +12,8 @@
       "version": "1.0.0",
       "mainClass": "hello.core",
       "outputs": [
-        "target/hello-1.0.0.jar",
-        "target/hello-1.0.0-standalone.jar"
+        "target/hello-1.0.0-standalone.jar",
+        "target/hello-1.0.0.jar"
       ],
       "dependsOn": []
     }

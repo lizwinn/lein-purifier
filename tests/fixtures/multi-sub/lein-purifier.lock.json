@@ -12,8 +12,8 @@
       "version": "1.0.0",
       "mainClass": null,
       "outputs": [
-        "target/multi-lib-1.0.0.jar",
-        "target/multi-lib-1.0.0-standalone.jar"
+        "target/multi-lib-1.0.0-standalone.jar",
+        "target/multi-lib-1.0.0.jar"
       ],
       "dependsOn": []
     },
@@ -24,8 +24,8 @@
       "version": "1.0.0",
       "mainClass": "multi.app",
       "outputs": [
-        "target/multi-app-1.0.0.jar",
-        "target/multi-app-1.0.0-standalone.jar"
+        "target/multi-app-1.0.0-standalone.jar",
+        "target/multi-app-1.0.0.jar"
       ],
       "dependsOn": [
         "example/multi-lib"

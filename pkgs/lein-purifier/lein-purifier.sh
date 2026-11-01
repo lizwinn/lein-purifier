@@ -240,7 +240,8 @@ cmdLock() {
       die "the lock run of $dir failed; see the output above"
     fi
     canonical=$(cd "$project/$dir" && pwd)
-    outputs=$(sed -n "s|^Created $canonical/||p" "$log" | sort -u | jq -R . | jq -s .)
+    # Byte order keeps the lockfile the same under every locale.
+    outputs=$(sed -n "s|^Created $canonical/||p" "$log" | LC_ALL=C sort -u | jq -R . | jq -s .)
     # The main class is the one the uberjar manifest names, for a project
     # with :main. Without :main, the manifest names clojure.main, which
     # would make the launcher of a library a Clojure REPL.

@@ -12,8 +12,8 @@
       "version": "1.0.0",
       "mainClass": null,
       "outputs": [
-        "target/mono-core-1.0.0.jar",
-        "target/mono-core-1.0.0-standalone.jar"
+        "target/mono-core-1.0.0-standalone.jar",
+        "target/mono-core-1.0.0.jar"
       ],
       "dependsOn": []
     },
@@ -24,8 +24,8 @@
       "version": "1.0.0",
       "mainClass": "mono.tool",
       "outputs": [
-        "target/mono-tool-1.0.0.jar",
-        "target/mono-tool-1.0.0-standalone.jar"
+        "target/mono-tool-1.0.0-standalone.jar",
+        "target/mono-tool-1.0.0.jar"
       ],
       "dependsOn": [
         "example/mono-core"

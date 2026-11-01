@@ -12,8 +12,8 @@
       "version": "0.1.0-SNAPSHOT",
       "mainClass": "sources.core",
       "outputs": [
-        "target/sources-0.1.0-SNAPSHOT.jar",
-        "target/sources-0.1.0-SNAPSHOT-standalone.jar"
+        "target/sources-0.1.0-SNAPSHOT-standalone.jar",
+        "target/sources-0.1.0-SNAPSHOT.jar"
       ],
       "dependsOn": []
     }
