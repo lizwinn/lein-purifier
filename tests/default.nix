@@ -231,7 +231,7 @@ in
   # Ring at a pinned commit builds from a lockfile kept outside its source:
   # the package of each of its five subprojects, which lein-sub names, and
   # the release with the jar and POM of each.
-  real-world-ring = pkgs.linkFarm "real-world-ring" (
+  example-ring = pkgs.linkFarm "example-ring" (
     lib.mapAttrsToList (name: path: { inherit name path; }) ring.packages
     ++ [
       {
@@ -242,7 +242,7 @@ in
   );
 
   # The test suites of the five Ring subprojects, which run in the sandbox.
-  real-world-ring-tests = ring.tests;
+  example-ring-tests = ring.tests;
 
   # The pinned source of Ring, which tests/relock.sh locks again.
   ring-source = ringSource;

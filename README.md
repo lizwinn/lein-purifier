@@ -226,13 +226,18 @@ serves x86_64-linux and aarch64-linux. A dependency whose POM activates a
 profile by operating system or architecture is the exception: the lock
 holds what the platform of the lock run resolved.
 
-## Real-world projects
+## Examples
 
-**Ring** ([ring-clojure/ring](https://github.com/ring-clojure/ring),
-commit `6238fe0`, version 1.15.6) has five subprojects that lein-sub names.
-`lein-purifier lock` locks it in 42 seconds, to 209 entries, and CI checks
-the following on both architectures, with Ring's lockfile kept outside its
-source in `tests/real/ring`:
+These are examples. The projects that CI locks and builds do not limit
+what lein-purifier supports, and the list of supported sources above
+says what it does.
+
+CI locks and builds **Ring**
+([ring-clojure/ring](https://github.com/ring-clojure/ring), commit
+`6238fe0`, version 1.15.6), which has five subprojects that lein-sub
+names. `lein-purifier lock` locks it in 42 seconds, to 209 entries. CI
+checks the following on both architectures, with Ring's lockfile kept
+outside its source in `tests/real/ring`:
 
 - relocking reproduces the lockfile byte for byte;
 - all five subprojects build in the sandbox, and the release holds the jar
@@ -249,9 +254,8 @@ in `ring-core`. Ring lists `ring-jetty-adapter` before
 not install them in a usable order here either; the fixture `multi-sub`
 tests the same case.
 
-**Compojure** (commit `8a4758d`) was tried too. Its lock run failed in
-Leiningen's `deps` task, and the cause is not known yet, so it is not
-among the checks.
+One known failure: the lock run of **Compojure** (commit `8a4758d`) fails
+in Leiningen's `deps` task, and the cause is not known yet.
 
 The test fixtures cover each supported source: `hello` (Maven Central,
 Clojars, a plugin, a test profile, an uberjar), `sources` (a version range,

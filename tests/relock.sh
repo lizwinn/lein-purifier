@@ -22,7 +22,7 @@ for fixture in "$work"/*/; do
     exit 1
   fi
 done
-# Ring, a real-world project with five subprojects, at its pinned commit:
+# Ring, a project with five subprojects, at its pinned commit:
 # its lockfile is kept outside its source, in tests/real/ring.
 system=$(nix eval --raw --impure --expr builtins.currentSystem)
 ring=$(nix build --no-link --print-out-paths "$root#checks.$system.ring-source")
