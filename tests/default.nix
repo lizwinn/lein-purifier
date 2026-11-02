@@ -113,6 +113,13 @@ let
   };
 in
 {
+  composition = import ./composition.nix {
+    inherit pkgs build;
+    purifier = withOverlay.lib.purifier;
+  };
+
+  jvm-projection = hello.packages.hello.projections.maven;
+
   inherit cli;
 
   # The unit tests of the lock run's parsing.

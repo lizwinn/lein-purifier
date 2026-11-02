@@ -34,6 +34,7 @@
   stdenvNoCC,
   runCommand,
   linkFarm,
+  python3,
   fetchurl,
   makeWrapper,
   strip-nondeterminism,
@@ -50,6 +51,11 @@
   # Passed to the shared library's fetchEntry and tree, such as a
   # `fetchurl` that sends credentials or uses a company mirror.
   fetchers ? { },
+  # Nix-built JVM projects, selected from their native repository catalogs.
+  projectDependencies ? purifier.lockedProjectInputs {
+    inputs = (builtins.fromJSON (builtins.readFile lockFile)).projectInputs or [ ];
+    system = stdenvNoCC.hostPlatform.system;
+  },
   # The lockfile. The default is the one `lein-purifier lock` writes at the
   # project root, and a lockfile outside `src` takes its place.
   lockFile ? src + "/lein-purifier.lock.json",
@@ -126,6 +132,13 @@ let
     // fetchers
   );
 
+  provided = purifier.jvmProjections {
+    repository = null;
+    dependencies = projectDependencies;
+    inherit runCommand python3;
+    name = "lein-provided-dependencies";
+  };
+
   # The tasks of the lock run. A lock with subprojects installs each one
   # into the local repository, and `install` builds the jar it installs.
   # Each task that builds a jar first empties target/ (:auto-clean), so
@@ -192,6 +205,13 @@ let
     # Maven Resolver writes next to what it reads, so the repository is a
     # writable tree of links into the store.
     cp -rs --no-preserve=mode ${dependencies}/. "$HOME/.m2/repository"
+    ${lib.optionalString (projectDependencies != [ ]) ''
+      cp -r --remove-destination --no-preserve=mode ${provided.maven}/. "$HOME/.m2/repository"
+      export LEIN_PURIFIER_PROVIDED_CONFIG="$TMPDIR/nix-project-inputs.edn"
+      ${python3}/bin/python ${purifier.jvmRepositoryTool} \
+        --clojure-config --catalog ${provided.maven.catalog} > "$LEIN_PURIFIER_PROVIDED_CONFIG"
+      cp ${./project-inputs.clj} "$LEIN_HOME/init.clj"
+    ''}
     # Offline, Maven Resolver reads no repository but the local one, so the
     # files of each repository inside the project join it.
     ${lib.concatMapStrings (repository: ''
@@ -257,6 +277,12 @@ let
       '';
       passthru = {
         leinProject = project;
+        projections = purifier.jvmProjections {
+          repository = release;
+          dependencies = projectDependencies;
+          inherit runCommand python3;
+          name = "lein-jvm-publications";
+        };
         # The files of the package by file name, such as
         # artifacts."hello-1.0.0-standalone.jar". They are known from the
         # lock alone, before the package is built.
@@ -324,6 +350,12 @@ let
   );
 in
 {
+  projections = purifier.jvmProjections {
+    repository = release;
+    dependencies = projectDependencies;
+    inherit runCommand python3;
+    name = "lein-jvm-publications";
+  };
   inherit
     lock
     dependencies

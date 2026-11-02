@@ -27,8 +27,9 @@ compare() {
   local project=$1 path=$2
   cmp "$work/deployed/$path" "$work/$project/.lein-purifier/release/$path"
 }
-compare hello example/hello/1.0.0/hello-1.0.0.jar
-compare hello example/hello/1.0.0/hello-1.0.0.pom
-compare multi-sub example/multi-lib/1.0.0/multi-lib-1.0.0.jar
-compare multi-sub example/multi-app/1.0.0/multi-app-1.0.0.jar
+for project in hello multi-sub; do
+  while IFS= read -r path; do
+    compare "$project" "$path"
+  done < <(cd "$work/$project/.lein-purifier/release" && find . -type f     \( -name '*.jar' -o -name '*.pom' \) -printf '%P\n')
+done
 echo "publish.sh: passed"

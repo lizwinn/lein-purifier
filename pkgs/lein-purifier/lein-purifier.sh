@@ -223,6 +223,11 @@ prefetchRepository() {
     rm -rf "$home"
     mkdir -p "$m2"
     cp -rs --no-preserve=mode "$state/repository/." "$m2"
+    if [ "$(jq '.projectInputs // [] | length' "$lockFile")" -gt 0 ]; then
+      jq '.projectInputs' "$lockFile" > "$state/inputs.json"
+      python3 "$LEIN_PURIFIER_PROJECT_INPUTS_TOOL" maven --inputs "$state/inputs.json" \
+        --destination "$m2" --metadata "$state/input-metadata" --roots "$state/inputs"
+    fi
     echo "$stamp" >"$state/stamp"
   fi
   # Offline, Maven Resolver reads no repository but the local one, so the
@@ -264,7 +269,22 @@ explainFailure() {
 runOffline() {
   local lockFile=$1 status=0 errors
   shift
-  export LEIN_HOME="${LEIN_HOME:-$HOME/.lein}"
+  local originalLeinHome="${LEIN_HOME:-$HOME/.lein}"
+  export LEIN_HOME="$originalLeinHome"
+  if [ "$(jq '.projectInputs // [] | length' "$lockFile")" -gt 0 ]; then
+    export LEIN_HOME="$home/.lein"
+    mkdir -p "$LEIN_HOME"
+    if [ -f "$originalLeinHome/profiles.clj" ] && [ "$originalLeinHome" != "$LEIN_HOME" ]; then
+      ln -sfn "$originalLeinHome/profiles.clj" "$LEIN_HOME/profiles.clj"
+    fi
+    : > "$LEIN_HOME/init.clj"
+    if [ -f "$originalLeinHome/init.clj" ] && [ "$originalLeinHome" != "$LEIN_HOME" ]; then
+      printf '(load-file %s)\n' "$(printf '%s' "$originalLeinHome/init.clj" | jq -Rs .)" >> "$LEIN_HOME/init.clj"
+    fi
+    cat "$LEIN_PURIFIER_PROJECTION_INIT" >> "$LEIN_HOME/init.clj"
+    LEIN_PURIFIER_PROVIDED_CONFIG="$(dirname "$lockFile")/.lein-purifier/input-metadata/project-inputs.edn"
+    export LEIN_PURIFIER_PROVIDED_CONFIG
+  fi
   export LEIN_JVM_OPTS="-Duser.home=$home ${LEIN_JVM_OPTS:-}"
   errors=$(mktemp)
   lein -o "$@" 2> >(tee "$errors" >&2) || status=$?
@@ -288,12 +308,18 @@ groupPath() {
 # and SNAPSHOT versions resolve to what it recorded. MODE `update`
 # resolves them anew, all of them, or those of the packages named in ARGS.
 cmdLock() {
-  local mode=$1 force=0 uberjar="" lockOption="" packages=()
+  local mode=$1 force=0 uberjar="" lockOption="" packages=() inputArgs=()
   shift
   if [ "$mode" = update ]; then force=1; fi
   while [ $# -gt 0 ]; do
     case $1 in
     --force) force=1 ;;
+    --input)
+      [ $# -ge 2 ] || die "$mode: --input needs a flake package"
+      inputArgs+=(--input "$2")
+      force=1
+      shift
+      ;;
     --no-uberjar) uberjar=false ;;
     --lockfile)
       [ $# -ge 2 ] || die "$mode: --lockfile needs a path"
@@ -334,6 +360,19 @@ cmdLock() {
   tar -C "$root" --exclude=target --exclude=.git --exclude=checkouts --exclude=.lein-purifier -cf - . |
     tar -C "$work/project" -xf -
   cp "$LEIN_PURIFIER_INIT" "$work/home/.lein/init.clj"
+  local previousArgs=() refreshArgs=()
+  if [ "$previous" = 1 ]; then previousArgs=(--previous "$lockFile"); fi
+  if [ "$mode" = update ] && [ ${#packages[@]} = 0 ]; then refreshArgs=(--refresh); fi
+  python3 "$LEIN_PURIFIER_PROJECT_INPUTS_TOOL" pin \
+    "${previousArgs[@]}" "${inputArgs[@]}" "${refreshArgs[@]}" --output "$work/inputs.json"
+  if [ "$(jq length "$work/inputs.json")" -gt 0 ]; then
+    python3 "$LEIN_PURIFIER_PROJECT_INPUTS_TOOL" maven --inputs "$work/inputs.json" \
+      --destination "$work/home/.m2/repository" --metadata "$work/input-metadata" --roots "$work/inputs"
+    export LEIN_PURIFIER_PROVIDED_CONFIG="$work/input-metadata/project-inputs.edn"
+    export LEIN_PURIFIER_PROVIDED_PATHS="$work/input-metadata/supplied-paths.json"
+    chmod u+w "$work/home/.lein/init.clj"
+    cat "$LEIN_PURIFIER_PROJECTION_INIT" >> "$work/home/.lein/init.clj"
+  fi
 
   # The lock run sees what a sandboxed build sees: an empty local
   # repository, no user profile, and none of the files in the home
@@ -512,6 +551,7 @@ cmdLock() {
     --arg definitionHash "$(definitionHash "$root" "${ordered[@]}")" \
     --argjson uberjar "$uberjar" \
     --argjson projectRepositories "$(LC_ALL=C sort -u "$repositories" | jq -R . | jq -s .)" \
+    --slurpfile projectInputs "$work/inputs.json" \
     --slurpfile projects "$projects" \
     --slurpfile artifacts "$artifacts" \
     '{
@@ -523,7 +563,7 @@ cmdLock() {
       projects: $projects,
       projectRepositories: $projectRepositories,
       artifacts: ($artifacts | sort_by(.path))
-    }' >"$work/lock.json"
+    } | if ($projectInputs[0] | length) > 0 then . + {projectInputs: $projectInputs[0]} else . end' >"$work/lock.json"
   jq --arg integrity "$(lockIntegrity "$work/lock.json")" '. + { integrity: $integrity }' \
     "$work/lock.json" >"$lockFile.tmp"
   mv "$lockFile.tmp" "$lockFile"
@@ -573,31 +613,38 @@ cmdPublish() {
 
   # The release is the one buildLeinProject builds, with the nixpkgs this
   # flake pins, so its Leiningen is the one the lock was made with.
-  local release
-  echo "lein-purifier: building the release with Nix"
-  release=$(LEIN_PURIFIER_ROOT="$root" LEIN_PURIFIER_LOCK="$lockFile" nix build --impure --print-out-paths \
+  local release_json release catalog
+  echo "lein-purifier: building the immutable publication repository with Nix"
+  release_json=$(LEIN_PURIFIER_ROOT="$root" LEIN_PURIFIER_LOCK="$lockFile" nix build --impure --json \
     --out-link "$(dirname "$lockFile")/.lein-purifier/release" --expr "$(flakeExpression)
-      (pkgs.lein-purifier.buildLeinProject {
+      let built = pkgs.lein-purifier.buildLeinProject {
         src = /. + builtins.getEnv \"LEIN_PURIFIER_ROOT\";
         lockFile = /. + builtins.getEnv \"LEIN_PURIFIER_LOCK\";
-      }).release")
+      }; in [ built.projections.maven built.projections.maven.metadata ]")
+  release=$(jq -r '.[0].outputs.out' <<< "$release_json")
+  catalog="$(jq -r '.[0].outputs.metadata' <<< "$release_json")/catalog.json"
 
-  local name record dir group version directory
-  for name in "${names[@]}"; do
-    record=$(jq -c --arg name "$name" '.projects[] | select(.name == $name)' "$lockFile")
-    [ -n "$record" ] || die "the lockfile has no project $name"
-    dir=$(jq -r .dir <<<"$record")
-    group=$(jq -r .group <<<"$record")
-    version=$(jq -r .version <<<"$record")
+  local name record dir group version directory module files=()
+  while IFS= read -r module; do
+    name=$(jq -r .name <<< "$module")
+    group=$(jq -r .group <<< "$module")
+    version=$(jq -r .version <<< "$module")
+    record=$(jq -c --arg group "$group" --arg name "$name" \
+      '[.projects[] | select(.group == $group and .name == $name)] | first // {dir:"."}' "$lockFile")
+    dir=$(jq -r .dir <<< "$record")
     directory="$release/$(groupPath "$group")/$name/$version"
+    mapfile -t files < <(find "$directory" -maxdepth 1 -type f \
+      ! -name '*.sha1' ! -name '*.md5' ! -name '*.sha256' ! -name '*.sha512' ! -name '*.asc' | LC_ALL=C sort)
     echo "lein-purifier: deploying $group/$name $version to $repository"
-    # The upload needs the network, so Leiningen runs online here, on the
-    # prefetched local repository.
     (cd "$root/$dir" &&
       LEIN_HOME="${LEIN_HOME:-$HOME/.lein}" LEIN_JVM_OPTS="-Duser.home=$home ${LEIN_JVM_OPTS:-}" \
-        lein deploy "$repository" "$group/$name" "$version" \
-        "$directory/$name-$version.jar" "$directory/$name-$version.pom")
-  done
+        lein deploy "$repository" "$group/$name" "$version" "${files[@]}")
+  done < <(jq -c --argjson names "$(printf '%s\n' "${names[@]}" | jq -R . | jq -s .)" \
+    --slurpfile lock "$lockFile" '
+    .modules[] | . as $module | select(
+      ($names | index($module.name)) != null or
+      ([$lock[0].projects[] | (.group + ":" + .name)] | index($module.group + ":" + $module.name)) == null
+    )' "$catalog")
 }
 
 # The `lein` of the everyday loop. In a project with a lockfile, it runs

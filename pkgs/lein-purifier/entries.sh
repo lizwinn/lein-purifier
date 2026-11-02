@@ -81,6 +81,9 @@ lockEntries() {
   local installed=("$@")
   local repository resource file cwd rel path
   declare -A recorded
+  if [ -n "${LEIN_PURIFIER_PROVIDED_PATHS:-}" ]; then
+    while IFS= read -r rel; do recorded[$rel]=1; done < <(jq -r '.[]' "$LEIN_PURIFIER_PROVIDED_PATHS")
+  fi
   while IFS=$'\t' read -r repository resource file cwd; do
     case $resource in *.sha1 | *.md5 | *.sha256 | *.sha512 | *.asc) continue ;; esac
     rel=${file#"$m2"/}

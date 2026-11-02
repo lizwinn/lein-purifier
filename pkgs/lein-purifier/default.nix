@@ -6,6 +6,9 @@
 # the Nix installation it runs on.
 {
   stdenv,
+  lib,
+  python3,
+  purifier ? lib.purifier,
   runCommand,
   writeShellApplication,
   leiningen,
@@ -32,6 +35,7 @@ let
     name = "lein-purifier";
     runtimeInputs = [
       leiningen
+      python3
       jq
       unzip
       gnutar
@@ -46,6 +50,8 @@ let
       LEIN_PURIFIER_FORMAT = toString (import ../../nix/lib/lock-version.nix);
       LEIN_PURIFIER_LEIN_VERSION = leiningen.version;
       LEIN_PURIFIER_INIT = ./init.clj;
+      LEIN_PURIFIER_PROJECT_INPUTS_TOOL = "${purifier.projectInputsTool}/project_inputs.py";
+      LEIN_PURIFIER_PROJECTION_INIT = ../../nix/lib/project-inputs.clj;
       LEIN_PURIFIER_ENTRIES = ./entries.sh;
     };
     text = builtins.readFile ./lein-purifier.sh;
