@@ -133,7 +133,8 @@ it gives `nix build` and `nix flake check`:
 
 ```nix
 {
-  inputs.lein-purifier.url = "github:nix-purifiers/lein-purifier";
+  inputs.lein-purifier.url =
+    "github:nix-purifiers/lein-purifier";
   inputs.nixpkgs.follows = "lein-purifier/nixpkgs";
 
   outputs =
@@ -144,10 +145,13 @@ it gives `nix build` and `nix flake check`:
         inherit system;
         overlays = [ lein-purifier.overlays.default ];
       };
-      project = pkgs.lein-purifier.buildLeinProject { src = ./.; };
+      project = pkgs.lein-purifier.buildLeinProject {
+        src = ./.;
+      };
     in
     {
-      packages.${system}.default = project.packages.hello;
+      packages.${system}.default =
+        project.packages.hello;
       checks.${system}.tests = project.tests;
     };
 }
