@@ -202,6 +202,7 @@ let
     export HOME="$TMPDIR/home"
     export LEIN_HOME="$HOME/.lein"
     mkdir -p "$HOME/.m2/repository" "$LEIN_HOME" "$TMPDIR/java-tmp"
+    cp --no-preserve=mode ${./runtime-classpath.clj} "$LEIN_HOME/init.clj"
     # Maven Resolver writes next to what it reads, so the repository is a
     # writable tree of links into the store.
     cp -rs --no-preserve=mode ${dependencies}/. "$HOME/.m2/repository"
@@ -210,7 +211,7 @@ let
       export LEIN_PURIFIER_PROVIDED_CONFIG="$TMPDIR/nix-project-inputs.edn"
       ${python3}/bin/python ${purifier.jvmRepositoryTool} \
         --clojure-config --catalog ${provided.maven.catalog} > "$LEIN_PURIFIER_PROVIDED_CONFIG"
-      cp ${./project-inputs.clj} "$LEIN_HOME/init.clj"
+      cat ${./project-inputs.clj} >> "$LEIN_HOME/init.clj"
     ''}
     # Offline, Maven Resolver reads no repository but the local one, so the
     # files of each repository inside the project join it.
@@ -252,9 +253,7 @@ let
       buildPhase = ''
         runHook preBuild
         leinOffline lein -o do ${lib.concatStringsSep ", " tasks}
-        ${lib.optionalString (projectDependencies != [ ]) ''
-          leinOffline lein -o with-profile -dev,-provided classpath > "$TMPDIR/runtime-classpath.txt"
-        ''}
+                  leinOffline lein -o purifier-runtime-classpath > "$TMPDIR/runtime-classpath.txt"
         runHook postBuild
       '';
       dontFixup = !launcher;
@@ -272,11 +271,9 @@ let
         # A jar records the time each entry was written; stripping it makes
         # a rebuild give the same bytes.
         strip-nondeterminism "$out/${javaDirectory}"/*.jar
-        ${lib.optionalString (projectDependencies != [ ]) ''
-          ${python3}/bin/python ${./export-runtime.py} ${purifier.projectInputsTool} \
+                  ${python3}/bin/python ${./export-runtime.py} ${purifier.projectInputsTool} \
             "$TMPDIR/runtime-classpath.txt" "$PWD" "$HOME/.m2/repository" \
             ${provided.maven.catalog} "$out/nix-support/runtime"
-        ''}
         ${lib.optionalString launcher ''
           makeWrapper ${jdk'}/bin/java "$out/bin/${project.name}" \
             --add-flags "-jar $out/${javaDirectory}/${baseNameOf uberjar}"
@@ -287,7 +284,7 @@ let
         leinProject = project;
         projections = purifier.jvmProjections {
           repository = release;
-          runtimeRepository = if projectDependencies == [ ] then null else runtimeRepository;
+          inherit runtimeRepository;
           dependencies = projectDependencies;
           inherit runCommand python3;
           name = "lein-jvm-publications";
@@ -368,7 +365,7 @@ in
 {
   projections = purifier.jvmProjections {
     repository = release;
-    runtimeRepository = if projectDependencies == [ ] then null else runtimeRepository;
+    inherit runtimeRepository;
     dependencies = projectDependencies;
     inherit runCommand python3;
     name = "lein-jvm-publications";

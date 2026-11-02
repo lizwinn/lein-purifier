@@ -113,6 +113,11 @@ let
   };
 in
 {
+  # A producer needs a complete runtime view even with no Nix project inputs.
+  standalone-projection = pkgs.runCommand "lein-standalone-projection" { } ''
+    test -n "$(find ${hello.projections.maven}/org/clojure/data.json -name '*.jar')"
+    touch $out
+  '';
   composition = import ./composition.nix {
     inherit pkgs build;
     purifier = withOverlay.lib.purifier;
