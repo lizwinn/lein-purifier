@@ -376,10 +376,7 @@ flake:
 
 ## Credits
 
-lein-purifier follows the design of
-[sbt-nix-backend](https://github.com/clhodapp/sbt-nix-backend), which is
-becoming sbt-purifier: a lock run in the sandbox environment, a lockfile of
-downloads and outputs, sandboxed builds, an offline development loop and a
-publish step from what Nix built. The purifier idea was inspired by
-nixcloud's [cargo (libnix)](https://github.com/nixcloud/cargo). It is MIT
-licensed.
+The purifier idea was inspired by nixcloud's
+[cargo (libnix)](https://github.com/nixcloud/cargo).
+
+Released under the MIT license; see [LICENSE](LICENSE).
