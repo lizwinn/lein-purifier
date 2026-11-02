@@ -641,7 +641,7 @@ cmdPublish() {
         lein deploy "$repository" "$group/$name" "$version" "${files[@]}")
   done < <(jq -c --argjson names "$(printf '%s\n' "${names[@]}" | jq -R . | jq -s .)" \
     --slurpfile lock "$lockFile" '
-    .modules[] | . as $module | select(
+    (.publications // .modules)[] | . as $module | select(
       ($names | index($module.name)) != null or
       ([$lock[0].projects[] | (.group + ":" + .name)] | index($module.group + ":" + $module.name)) == null
     )' "$catalog")
