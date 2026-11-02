@@ -320,9 +320,10 @@ Lock the fork from its root, and commit the lockfile to the repository
 with a flake that builds the project:
 
 ```zsh
+nix shell 'github:nix-purifiers/lein-purifier'
 git clone https://github.com/ring-clojure/ring
 cd ring
-nix run github:nix-purifiers/lein-purifier -- lock
+lein-purifier lock
 ```
 
 ```zsh
