@@ -252,6 +252,9 @@ let
       buildPhase = ''
         runHook preBuild
         leinOffline lein -o do ${lib.concatStringsSep ", " tasks}
+        ${lib.optionalString (projectDependencies != [ ]) ''
+          leinOffline lein -o with-profile -dev,-provided classpath > "$TMPDIR/runtime-classpath.txt"
+        ''}
         runHook postBuild
       '';
       dontFixup = !launcher;
@@ -269,6 +272,11 @@ let
         # A jar records the time each entry was written; stripping it makes
         # a rebuild give the same bytes.
         strip-nondeterminism "$out/${javaDirectory}"/*.jar
+        ${lib.optionalString (projectDependencies != [ ]) ''
+          ${python3}/bin/python ${./export-runtime.py} ${purifier.projectInputsTool} \
+            "$TMPDIR/runtime-classpath.txt" "$PWD" "$HOME/.m2/repository" \
+            ${provided.maven.catalog} "$out/nix-support/runtime"
+        ''}
         ${lib.optionalString launcher ''
           makeWrapper ${jdk'}/bin/java "$out/bin/${project.name}" \
             --add-flags "-jar $out/${javaDirectory}/${baseNameOf uberjar}"
@@ -279,6 +287,7 @@ let
         leinProject = project;
         projections = purifier.jvmProjections {
           repository = release;
+          runtimeRepository = if projectDependencies == [ ] then null else runtimeRepository;
           dependencies = projectDependencies;
           inherit runCommand python3;
           name = "lein-jvm-publications";
@@ -334,6 +343,13 @@ let
     }) lock.projects
   );
 
+  runtimeRepository = runCommand "lein-runtime-repository" { } ''
+    ${python3}/bin/python ${./merge-runtime.py} ${purifier.projectInputsTool} "$out" \
+      ${lib.escapeShellArgs (
+        map (package: "${package}/nix-support/runtime") (builtins.attrValues packages)
+      )}
+  '';
+
   release = runCommand "lein-purifier-release" { } (
     lib.concatMapStrings (
       project:
@@ -352,6 +368,7 @@ in
 {
   projections = purifier.jvmProjections {
     repository = release;
+    runtimeRepository = if projectDependencies == [ ] then null else runtimeRepository;
     dependencies = projectDependencies;
     inherit runCommand python3;
     name = "lein-jvm-publications";
