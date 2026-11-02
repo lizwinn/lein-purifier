@@ -63,7 +63,8 @@ lockfile holds no download of the siblings. A run that needs one fails and
 names the directory to install:
 
 ```zsh
-cd core && lein install       # then app, which depends on core, can resolve it
+# then app, which depends on core, can resolve it
+cd core && lein install
 ```
 
 `lein sub install` at the root does the same for every subproject, in the
@@ -101,7 +102,8 @@ so `lein-purifier update` resolves the version ranges and SNAPSHOT
 versions anew against the repositories and relocks:
 
 ```zsh
-lein-purifier update                        # every version range and SNAPSHOT
+# every version range and SNAPSHOT
+lein-purifier update
 lein-purifier update org.clojure/data.json  # only this package
 ```
 
@@ -145,7 +147,8 @@ it gives `nix build` and `nix flake check`:
   inputs.lein-purifier.url = "github:nix-purifiers/lein-purifier";
   inputs.nixpkgs.follows = "lein-purifier/nixpkgs";
 
-  outputs = { nixpkgs, lein-purifier, ... }:
+  outputs =
+    { nixpkgs, lein-purifier, ... }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs {
@@ -208,15 +211,15 @@ For an ad hoc build, the builder can also be evaluated directly from the
 project root. Replace the example package name with one from your project:
 
 ```zsh
-nix build --impure --expr '
-  let
-    purifier = builtins.getFlake "github:nix-purifiers/lein-purifier";
-    pkgs = import purifier.inputs.nixpkgs {
-      system = builtins.currentSystem;
-      overlays = [ purifier.overlays.default ];
-    };
-  in
-  (pkgs.lein-purifier.buildLeinProject { src = ./.; }).packages.hello'
+nix build --impure --expr 'let
+  purifier = builtins.getFlake "github:nix-purifiers/lein-purifier";
+  pkgs = import purifier.inputs.nixpkgs {
+    system = builtins.currentSystem;
+    overlays = [ purifier.overlays.default ];
+  };
+in
+(pkgs.lein-purifier.buildLeinProject { src = ./.; })
+.packages.hello'
 ```
 
 This uses the purifier's pinned nixpkgs, matching the lock command above.
@@ -334,15 +337,15 @@ nix run github:nix-purifiers/lein-purifier -- lock
 ```
 
 ```zsh
-nix build --impure --expr '
-  let
-    purifier = builtins.getFlake "github:nix-purifiers/lein-purifier";
-    pkgs = import purifier.inputs.nixpkgs {
-      system = builtins.currentSystem;
-      overlays = [ purifier.overlays.default ];
-    };
-  in
-  (pkgs.lein-purifier.buildLeinProject { src = ./.; }).packages.ring-core'
+nix build --impure --expr 'let
+  purifier = builtins.getFlake "github:nix-purifiers/lein-purifier";
+  pkgs = import purifier.inputs.nixpkgs {
+    system = builtins.currentSystem;
+    overlays = [ purifier.overlays.default ];
+  };
+in
+(pkgs.lein-purifier.buildLeinProject { src = ./.; })
+.packages.ring-core'
 ```
 
 This builds one subproject, `ring-core`. Each subproject is a package with
